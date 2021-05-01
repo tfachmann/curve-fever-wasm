@@ -1,0 +1,63 @@
+<html>
+    <head>
+        <meta content="text/html;charset=utf-8" http-equiv="Content-Type"/>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Snake Wasm</title>
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.13.0/css/all.min.css" rel="stylesheet">
+        <link href="https://fonts.googleapis.com/css2?family=Inconsolata&family=Lato&display=swap" rel="stylesheet">
+        <link href="style.css" rel="stylesheet">
+    </head>
+    <body>
+        <script type="module">
+            import init from './pkg/curve_fever_wasm.js';
+        async function run() {
+            await init();
+        }
+        run();
+        </script>
+
+        <!-- Main game UI -->
+        <div id="content">
+            <div id="start">
+                <div class="screen">
+                    <form id="join_form">
+                        <p>
+                        Name:
+                        <input id="join_name" required=""></input>
+                        </p>
+                        <p>
+                        Room: <input id="join_room"></input>
+                        </p>
+                        <p class=small_margin>
+                        <button id="create_or_join" type="submit">Create Room</button>
+                        </p>
+                    </form>
+                    <div id="join_error">
+                    </div>
+                </div>
+            </div>
+            <div id="game">
+                <canvas id="main_canvas" height="800", width="1200" class="hidden"></canvas>
+            </div>
+        </div>
+        <hr>
+        <div id="footer">
+            <div>
+                <a href="https://github.com/tfachmann/curve-fever-wasm" target="_blank">
+                    <i class="fab fa-github"></i></a>
+                <a href="https://github.com/tfachmann/curve-fever-wasm" target="_blank">Source</a>
+            </div>
+            <div>
+                <div id="copyright">
+                    © 2021
+                    <a href="https://tfachmann.com" target="_blank">Timo Bachmann</a>
+                </div>
+                <div id="socials">
+                    <a href="https://github.com/tfachmann" target="_blank">
+                        <i class="fab fa-github">
+                        </i></a>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

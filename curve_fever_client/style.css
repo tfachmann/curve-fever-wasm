@@ -1,0 +1,120 @@
+.hidden {
+    display:none;
+}
+
+a:link, a:visited {
+    color: #9E9E9E;
+}
+
+div#copyright {
+    display: inline;
+    margin-right: 5pt;
+}
+
+div#socials {
+    display: inline;
+}
+
+div#footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: #9E9E9E;
+    height: 30pt;
+    font-size: 1.0em;
+}
+div#footer div {
+    margin-bottom: 10px;
+    margin-top: 0;
+}
+
+body {
+    font-family: Lato, sans-serif;
+    font-size: 16px;
+    color: #CFD8DC;
+    margin-left: 20px;
+    margin-right: 20px;
+    background-color: #212121;
+    overflow: hidden;
+}
+
+div#content {
+    margin: auto;
+    margin-bottom: 50px;
+}
+
+canvas {
+    margin: auto;
+    margin-top: 20px;
+}
+
+div#game {
+    display: flex;
+}
+
+div.screen {
+    height: 800px;
+    width: 1200px;
+    display: flex;
+    flex-direction: column;
+}
+
+div#start {
+    font-size: 2em;
+    max-width: 90vh;
+}
+
+div#playing {
+    max-width: 90vh;
+}
+
+form#join_form {
+    margin: auto;
+    margin-bottom: 5px;
+}
+
+div#join_error {
+    color: #E65100;
+    font-size: 0.7em;
+    margin: auto;
+    margin-top: 5px;
+}
+
+p.small_margin {
+    margin-bottom: 5px;
+}
+
+button {
+    display: block;
+    width: 100%;
+    font-size: 0.8em;
+    border-radius: 0;
+    color: #CFD8DC;
+    background-color: #263238;
+    border:1px solid #37474F;
+    margin: 0;
+    padding: 10px;
+}
+button:hover {
+    color: #E65100;
+}
+
+form:invalid button,
+button:disabled,
+button[disabled] {
+    color: #263238;
+    background-color: #757575;
+}
+
+input {
+    height: 50px;
+    width: 300px;
+    font-size: 0.8em;
+    border-radius: 0;
+    border:1px solid #37474F;
+    background-color: #263238;
+    color: #BDBDBD;
+    padding: 10px;
+    margin-left: 20px;
+}
+

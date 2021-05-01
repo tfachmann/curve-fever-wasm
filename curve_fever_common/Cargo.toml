@@ -1,0 +1,12 @@
+[package]
+name = "curve-fever-common"
+version = "0.1.0"
+authors = ["tfachmann <fachmanntj@gmail.com>"]
+edition = "2018"
+
+
+[dependencies]
+serde = { version = "1.0.124", features = ["derive"] }
+serde_derive = "1.0.124"
+uuid = { version = "0.8", features = ["serde", "v4"] }
+arrayvec = { version = "0.7", features = ["serde"] }
