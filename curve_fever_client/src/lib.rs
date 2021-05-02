@@ -172,6 +172,7 @@ struct Game {
     base: Rc<Base>,
     canvas: Canvas,
     players: HashMap<Uuid, MyPlayer>,
+    running: bool,
 }
 
 impl Game {
@@ -190,27 +191,34 @@ impl Game {
             base,
             canvas,
             players,
+            running: false,
         })
     }
 
     fn on_keydown(&mut self, event: KeyboardEvent) -> JsError {
-        console_log!("Key pressed - {}", event.key().as_str());
-        match event.key().as_str() {
-            "ArrowLeft" | "h" | "a" => self.base.send(ClientMessage::Move(Direction::Left))?,
-            "ArrowRight" | "l" | "d" => self.base.send(ClientMessage::Move(Direction::Right))?,
-            _ => (),
+        if self.running {
+            match event.key().as_str() {
+                "ArrowLeft" | "h" | "a" => self.base.send(ClientMessage::Move(Direction::Left))?,
+                "ArrowRight" | "l" | "d" => {
+                    self.base.send(ClientMessage::Move(Direction::Right))?
+                }
+                _ => (),
+            }
         }
         Ok(())
     }
 
     fn on_keyup(&mut self, event: KeyboardEvent) -> JsError {
-        console_log!("Key up - {}", event.key().as_str());
-        match event.key().as_str() {
-            "ArrowLeft" | "h" | "a" => self.base.send(ClientMessage::Move(Direction::Unchanged))?,
-            "ArrowRight" | "l" | "d" => {
-                self.base.send(ClientMessage::Move(Direction::Unchanged))?
+        if self.running {
+            match event.key().as_str() {
+                "ArrowLeft" | "h" | "a" => {
+                    self.base.send(ClientMessage::Move(Direction::Unchanged))?
+                }
+                "ArrowRight" | "l" | "d" => {
+                    self.base.send(ClientMessage::Move(Direction::Unchanged))?
+                }
+                _ => (),
             }
-            _ => (),
         }
         Ok(())
     }
@@ -221,13 +229,21 @@ impl Game {
     }
 
     fn remove_player(&mut self, uuid: Uuid, uuid_host: Uuid) -> JsError {
-        (*self.players.get_mut(&uuid_host).ok_or_else(|| format!("Player with uuid `{}` not found", uuid_host.to_string()))?).host = true;
-        self.players.remove(&uuid).ok_or_else(|| format!("Player with uuid `{}` not found", uuid.to_string()))?;
+        (*self
+            .players
+            .get_mut(&uuid_host)
+            .ok_or_else(|| format!("Player with uuid `{}` not found", uuid_host.to_string()))?)
+        .host = true;
+        self.players
+            .remove(&uuid)
+            .ok_or_else(|| format!("Player with uuid `{}` not found", uuid.to_string()))?;
         Ok(())
     }
 
     fn game_tick(&mut self) -> JsError {
-        self.players.iter_mut().for_each(|(_id, player)| player.tick());
+        self.players
+            .iter_mut()
+            .for_each(|(_id, player)| player.tick());
         self.draw()
     }
 
@@ -266,13 +282,20 @@ struct Playing {
     window: Rc<Window>,
     game: Game,
 
+    uuid: Uuid,
     players_div: HtmlElement,
     chat_div: HtmlElement,
     handle_id: i32,
 }
 
 impl Playing {
-    fn new(base: Rc<Base>, window: Rc<Window>, game: Game, room_name: String) -> JsResult<Playing> {
+    fn new(
+        base: Rc<Base>,
+        window: Rc<Window>,
+        game: Game,
+        room_name: String,
+        uuid: Uuid,
+    ) -> JsResult<Playing> {
         // show game
         base.get_element_by_id("game")?
             .set_attribute("class", "visible")?;
@@ -280,33 +303,19 @@ impl Playing {
         base.get_element_by_id("room_name")?
             .set_inner_html(&room_name);
 
-        let players_div = base.get_element_by_id("players")?
+        let players_div = base
+            .get_element_by_id("players")?
             .dyn_into::<HtmlElement>()?;
-        let chat_div = base.get_element_by_id("chat")?
-            .dyn_into::<HtmlElement>()?;
-
-        // game ticks
-        let cb = Closure::wrap(Box::new(move || {
-            HANDLE
-                .lock()
-                .unwrap()
-                .game_tick()
-                .expect("Could not update game");
-        }) as Box<dyn Fn()>);
-
-        let handle_id = window.set_interval_with_callback_and_timeout_and_arguments_0(
-            cb.as_ref().unchecked_ref(),
-            15,
-        )?;
-        cb.forget();
+        let chat_div = base.get_element_by_id("chat")?.dyn_into::<HtmlElement>()?;
 
         Ok(Playing {
             base,
             window,
             game,
+            uuid,
             players_div,
             chat_div,
-            handle_id,
+            handle_id: 0,
         })
     }
 
@@ -330,9 +339,32 @@ impl Playing {
         Ok(())
     }
 
+    fn round_started(&mut self) -> JsError {
+        // TODO: start tick
+        // game ticks
+        let cb = Closure::wrap(Box::new(move || {
+            HANDLE
+                .lock()
+                .unwrap()
+                .game_tick()
+                .expect("Could not update game");
+        }) as Box<dyn Fn()>);
+
+        self.handle_id = self
+            .window
+            .set_interval_with_callback_and_timeout_and_arguments_0(
+                cb.as_ref().unchecked_ref(),
+                15,
+            )?;
+        cb.forget();
+
+        self.game.running = true;
+        Ok(())
+    }
+
     fn draw_player(&self) -> JsError {
         self.players_div.set_inner_html("");
-        for (_id, player) in &self.game.players {
+        for (id, player) in &self.game.players {
             let p = self.base.doc.create_element("p")?;
             p.set_class_name("player_entry");
             p.set_text_content(Some(player.name.as_str()));
@@ -341,6 +373,12 @@ impl Playing {
                 host.set_class_name("host");
                 host.set_text_content(Some("*"));
                 p.append_child(&host)?;
+            }
+            if *id == self.uuid {
+                let you = self.base.doc.create_element("span")?;
+                you.set_class_name("you");
+                you.set_text_content(Some(" (You)"));
+                p.append_child(&you)?;
             }
             self.players_div.append_child(&p)?;
         }
@@ -552,6 +590,7 @@ impl State {
         room_name: String,
         grid_info: GridInfo,
         players: Vec<Player>,
+        uuid: Uuid,
     ) -> JsError {
         Ok(match self {
             State::Join(s) => {
@@ -568,8 +607,13 @@ impl State {
                 let s = std::mem::replace(self, State::Empty);
                 match s {
                     State::Join(s) => {
-                        *self =
-                            State::Playing(Playing::new(s.base.clone(), s.window.clone(), game, room_name)?)
+                        *self = State::Playing(Playing::new(
+                            s.base.clone(),
+                            s.window.clone(),
+                            game,
+                            room_name,
+                            uuid,
+                        )?)
                     }
                     _ => panic!("Invalid state"),
                 }
@@ -581,21 +625,28 @@ impl State {
     fn on_new_player(&mut self, player: Player) -> JsError {
         Ok(match self {
             State::Playing(s) => {
-                s.add_player(player);
+                s.add_player(player)?;
             }
             _ => (),
         })
-
     }
 
     fn on_player_disconnected(&mut self, uuid: Uuid, uuid_host: Uuid) -> JsError {
         Ok(match self {
             State::Playing(s) => {
-                s.remove_player(uuid, uuid_host);
+                s.remove_player(uuid, uuid_host)?;
             }
             _ => (),
         })
+    }
 
+    fn on_round_started(&mut self) -> JsError {
+        Ok(match self {
+            State::Playing(s) => {
+                s.round_started()?;
+            }
+            _ => (),
+        })
     }
 
     fn game_update(&mut self, game_state: Vec<(Uuid, Direction)>) -> JsError {
@@ -610,20 +661,7 @@ impl State {
     fn game_tick(&mut self) -> JsError {
         Ok(match self {
             State::Playing(s) => {
-                //console_log!("game_tick()");
                 s.game.game_tick()?;
-                //match s.board.grid.do_move() {
-                //Ok(_) => s.board.draw()?,
-                //Err(_) => {
-                //s.stop_game()?;
-                //// Transition to EndGame
-                //let s = std::mem::replace(self, State::Empty);
-                //match s {
-                //State::Playing(s) => *self = State::EndGame(s.on_start_game()?),
-                //_ => panic!("Invalid state"),
-                //}
-                //}
-                //}
             }
             _ => (),
         })
@@ -677,9 +715,13 @@ fn on_message(msg: ServerMessage) -> JsError {
             room_name,
             grid_info,
             players,
-        } => state.on_join_success(room_name, grid_info, players)?,
+            uuid,
+        } => state.on_join_success(room_name, grid_info, players, uuid)?,
         ServerMessage::NewPlayer(player) => state.on_new_player(player)?,
-        ServerMessage::PlayerDisconnected(uuid, uuid_host) => state.on_player_disconnected(uuid, uuid_host)?,
+        ServerMessage::PlayerDisconnected(uuid, uuid_host) => {
+            state.on_player_disconnected(uuid, uuid_host)?
+        }
+        ServerMessage::RoundStarted => state.on_round_started()?,
     };
     Ok(())
 }

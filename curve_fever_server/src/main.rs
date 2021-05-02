@@ -108,6 +108,7 @@ impl Room {
                     .map(|v| *v.lock().unwrap())
                     .collect::<Vec<Player>>()
             },
+            uuid: id,
         })?;
 
         // create player for server

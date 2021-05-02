@@ -1,12 +1,11 @@
+use arrayvec::ArrayString;
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     convert::TryInto,
     sync::{Arc, Mutex},
 };
-
-use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use arrayvec::ArrayString;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub enum Direction {
@@ -19,9 +18,9 @@ pub enum Direction {
 pub struct Player {
     pub uuid: Uuid,
     pub host: bool,
-    pub name: ArrayString::<20>,
+    pub name: ArrayString<20>,
     //pub color: [char; 7],
-    pub color: ArrayString::<7>,
+    pub color: ArrayString<7>,
 
     pub x: f64,
     pub y: f64,
@@ -35,7 +34,14 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(uuid: Uuid, name: &str, x_max: u32, y_max: u32, line_width: u32, rotation_delta: f64) -> Self {
+    pub fn new(
+        uuid: Uuid,
+        name: &str,
+        x_max: u32,
+        y_max: u32,
+        line_width: u32,
+        rotation_delta: f64,
+    ) -> Self {
         Self {
             uuid,
             host: false,
@@ -195,9 +201,9 @@ pub struct GridInfo {
 pub enum ClientMessage {
     CreateRoom(String),
     JoinRoom(String, String),
-    Move(Direction),
     StartGame,
     Disconnected,
+    Move(Direction),
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -207,8 +213,10 @@ pub enum ServerMessage {
         room_name: String,
         grid_info: GridInfo,
         players: Vec<Player>,
+        uuid: Uuid,
     },
     NewPlayer(Player),
     PlayerDisconnected(Uuid, Uuid),
+    RoundStarted,
     GameState(Vec<(Uuid, Direction)>),
 }
