@@ -406,7 +406,9 @@ impl MyHtmlInputElement {
     }
 
     fn check_name(&self, name: &str) -> bool {
-        if name.len() as u32 > self.max_len {
+        if name.len() == 0 {
+            true
+        } else if name.len() as u32 > self.max_len {
             false
         } else if name.contains("<") || name.contains(">") {
             false
@@ -515,6 +517,9 @@ impl Join {
 
     fn input_name_changed(&mut self) -> JsError {
         self.input_name.set_value(&self.input_name.value());
+        if self.input_name.value().chars().all(|c| c == ' ') {
+            self.input_name.set_value("");
+        }
         Ok(())
     }
 
