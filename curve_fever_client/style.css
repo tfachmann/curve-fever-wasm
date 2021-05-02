@@ -2,6 +2,16 @@
     display:none;
 }
 
+.noselect {
+  -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-user-select: none; /* Safari */
+     -khtml-user-select: none; /* Konqueror HTML */
+       -moz-user-select: none; /* Old versions of Firefox */
+        -ms-user-select: none; /* Internet Explorer/Edge */
+            user-select: none; /* Non-prefixed version, currently
+                                  supported by Chrome, Edge, Opera and Firefox */
+}
+
 a:link, a:visited {
     color: #9E9E9E;
 }
@@ -15,6 +25,13 @@ div#socials {
     display: inline;
 }
 
+div#footer_wrap {
+    /*margin-left: calc((100% - 1200px) / 2.0);*/
+    position: fixed;
+    min-width: 1200px;
+    width: calc(100% - 40px);
+    bottom: 0px;
+}
 div#footer {
     display: flex;
     align-items: center;
@@ -43,16 +60,65 @@ div#content {
     margin-bottom: 50px;
 }
 
-canvas {
-    margin: auto;
-    margin-top: 20px;
+div#game {
 }
 
-div#game {
+div#game_content {
     display: flex;
+    height: 800px;
+    margin-top: 20px;
+    flex-direction: row;
+    justify-content: center;
+}
+
+canvas {
+    border: 1px solid #37474F
+}
+
+div#right_column {
+    font-size: 1.5em;
+    margin-left: 25px;
+    height: 100%;
+    min-width: 300px;
+    width: 400px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    justify-content: stretch;
+}
+@media only screen and (max-width: 1350px) {
+    div#right_column {
+        display: none;
+    }
+}
+
+div.flex-item {
+    margin-top: 10px;
+}
+
+div#room {
+    margin-top: 10px;
+}
+
+div#players {
+    border: 2px solid #37474F;
+    flex: 1;
+}
+
+p.player_entry {
+    margin: auto;
+    padding: 1px 8px;
+    border-bottom: solid 2px #37474F;
+}
+
+div#chat {
+    border: 2px solid #37474F;
+    flex: 1;
 }
 
 div.screen {
+    margin: auto;
+    margin-top: 20px;
     height: 800px;
     width: 1200px;
     display: flex;
@@ -61,7 +127,7 @@ div.screen {
 
 div#start {
     font-size: 2em;
-    max-width: 90vh;
+    width: 100%;
 }
 
 div#playing {

@@ -36,10 +36,23 @@
                     </div>
                 </div>
             </div>
-            <div id="game">
-                <canvas id="main_canvas" height="800", width="1200" class="hidden"></canvas>
+            <div id="game" class="hidden">
+                <div id="game_content">
+                    <canvas id="main_canvas" height="800", width="1200"></canvas>
+                    <div id="right_column">
+                        <div id="room" class="flex-item">
+                            <span class="noselect">Room: </span><span id="room_name"></span>
+                        </div>
+                        <div id="players" class="flex-item">
+                        </div>
+                        <div id="chat" class="flex-item">
+                        </div>
+                    </div>
+                </div>
+                </div>
             </div>
         </div>
+        <div id="footer_wrap">
         <hr>
         <div id="footer">
             <div>
@@ -58,6 +71,7 @@
                         </i></a>
                 </div>
             </div>
+        </div>
         </div>
     </body>
 </html>

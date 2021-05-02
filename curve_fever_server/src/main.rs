@@ -73,6 +73,7 @@ impl Room {
         // create player for game
         let player = Arc::new(Mutex::new(Player::new(
             id,
+            &player_name,
             self.game.width,
             self.game.height,
             self.game.line_width,
@@ -87,16 +88,6 @@ impl Room {
             self.host = id;
         }
         self.connections.insert(addr, id);
-
-        // create player for server
-        self.players.insert(
-            id,
-            PlayerServer {
-                name: player_name.clone(),
-                ws: Some(ws_tx.clone()),
-                player: player.clone(),
-            },
-        );
 
         // tell other players that a player has joined
         info!(
@@ -124,8 +115,18 @@ impl Room {
         )?;
 
 
+        // create player for server
+        self.players.insert(
+            id,
+            PlayerServer {
+                name: player_name.clone(),
+                ws: Some(ws_tx.clone()),
+                player: player.clone(),
+            },
+        );
+
         // tell other players that a player has joined
-        self.broadcast(ServerMessage::NewPlayer(id, player_name.clone()));
+        self.broadcast(ServerMessage::NewPlayer(*player.clone().lock().unwrap()));
         Ok(())
     }
 
@@ -183,7 +184,7 @@ impl Room {
                 if let Some(id) = self.connections.get(&addr) {
                     let player = &self.players.get(id).unwrap();
                     self.game
-                        .on_move(&player.player.lock().unwrap().uuid, direction);
+                        .on_move(&player.player.lock().unwrap().uuid, direction).unwrap();
                 }
             }
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {

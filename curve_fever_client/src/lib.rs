@@ -43,8 +43,6 @@ impl Canvas {
         let canvas: HtmlCanvasElement = base
             .get_element_by_id("main_canvas")?
             .dyn_into::<HtmlCanvasElement>()?;
-
-        canvas.set_attribute("class", "visible")?;
         canvas.set_width(width * 2);
         canvas.set_height(height * 2);
 
@@ -209,6 +207,11 @@ impl Game {
         Ok(())
     }
 
+    fn add_player(&mut self, player: MyPlayer) -> JsError {
+        self.players.push(player);
+        Ok(())
+    }
+
     fn game_tick(&mut self) -> JsError {
         self.players.iter_mut().for_each(|player| player.tick());
         self.draw()
@@ -249,12 +252,24 @@ struct Playing {
     window: Rc<Window>,
     game: Game,
 
+    players_div: HtmlElement,
+    chat_div: HtmlElement,
     handle_id: i32,
 }
 
 impl Playing {
-    fn new(base: Rc<Base>, window: Rc<Window>, game: Game) -> JsResult<Playing> {
-        // show canvas
+    fn new(base: Rc<Base>, window: Rc<Window>, game: Game, room_name: String, host: Uuid) -> JsResult<Playing> {
+        // show game
+        base.get_element_by_id("game")?
+            .set_attribute("class", "visible")?;
+
+        base.get_element_by_id("room_name")?
+            .set_inner_html(&room_name);
+
+        let players_div = base.get_element_by_id("players")?
+            .dyn_into::<HtmlElement>()?;
+        let chat_div = base.get_element_by_id("chat")?
+            .dyn_into::<HtmlElement>()?;
 
         // game ticks
         let cb = Closure::wrap(Box::new(move || {
@@ -275,6 +290,8 @@ impl Playing {
             base,
             window,
             game,
+            players_div,
+            chat_div,
             handle_id,
         })
     }
@@ -285,6 +302,23 @@ impl Playing {
 
     fn on_keyup(&mut self, event: KeyboardEvent) -> JsError {
         self.game.on_keyup(event)
+    }
+
+    fn add_player(&mut self, player: Player) -> JsError {
+        self.game.add_player(player.into())?;
+        self.draw_player()?;
+        Ok(())
+    }
+
+    fn draw_player(&self) -> JsError {
+        self.players_div.set_inner_html("");
+        for player in &self.game.players {
+            let p = self.base.doc.create_element("p")?;
+            p.set_class_name("player_entry");
+            p.set_text_content(Some(player.name.as_str()));
+            self.players_div.append_child(&p)?;
+        }
+        Ok(())
     }
 }
 
@@ -505,7 +539,6 @@ impl State {
         players: Vec<Player>,
     ) -> JsError {
         Ok(match self {
-            //State::Join(s) => s.join_success(room_name, host, grid_info, players)?,
             State::Join(s) => {
                 // switch state to `Playing`
                 let game = Game::new(
@@ -521,13 +554,23 @@ impl State {
                 match s {
                     State::Join(s) => {
                         *self =
-                            State::Playing(Playing::new(s.base.clone(), s.window.clone(), game)?)
+                            State::Playing(Playing::new(s.base.clone(), s.window.clone(), game, room_name, host)?)
                     }
                     _ => panic!("Invalid state"),
                 }
             }
             _ => (),
         })
+    }
+
+    fn on_new_player(&mut self, player: Player) -> JsError {
+        Ok(match self {
+            State::Playing(s) => {
+                s.add_player(player);
+            }
+            _ => (),
+        })
+
     }
 
     fn game_update(&mut self, game_state: Vec<(Uuid, Direction)>) -> JsError {
@@ -611,7 +654,7 @@ fn on_message(msg: ServerMessage) -> JsError {
             grid_info,
             players,
         } => state.on_join_success(room_name, host, grid_info, players)?,
-        ServerMessage::NewPlayer(_, _) => {}
+        ServerMessage::NewPlayer(player) => state.on_new_player(player)?,
         ServerMessage::PlayerDisconnected(_) => {}
     };
     Ok(())

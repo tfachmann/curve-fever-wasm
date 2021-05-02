@@ -18,6 +18,7 @@ pub enum Direction {
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Player {
     pub uuid: Uuid,
+    pub name: ArrayString::<20>,
     //pub color: [char; 7],
     pub color: ArrayString::<7>,
 
@@ -33,9 +34,10 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(uuid: Uuid, x_max: u32, y_max: u32, line_width: u32, rotation_delta: f64) -> Self {
+    pub fn new(uuid: Uuid, name: &str, x_max: u32, y_max: u32, line_width: u32, rotation_delta: f64) -> Self {
         Self {
             uuid,
+            name: ArrayString::<20>::from(name).unwrap(),
             color: ArrayString::<7>::from("#E65100").unwrap(),
             x: 0.,
             y: 0.,
@@ -205,7 +207,7 @@ pub enum ServerMessage {
         grid_info: GridInfo,
         players: Vec<Player>,
     },
-    NewPlayer(Uuid, String),
+    NewPlayer(Player),
     PlayerDisconnected(Uuid),
     GameState(Vec<(Uuid, Direction)>),
 }
