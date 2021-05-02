@@ -18,6 +18,7 @@ pub enum Direction {
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Player {
     pub uuid: Uuid,
+    pub host: bool,
     pub name: ArrayString::<20>,
     //pub color: [char; 7],
     pub color: ArrayString::<7>,
@@ -37,6 +38,7 @@ impl Player {
     pub fn new(uuid: Uuid, name: &str, x_max: u32, y_max: u32, line_width: u32, rotation_delta: f64) -> Self {
         Self {
             uuid,
+            host: false,
             name: ArrayString::<20>::from(name).unwrap(),
             color: ArrayString::<7>::from("#E65100").unwrap(),
             x: 0.,
@@ -203,11 +205,10 @@ pub enum ServerMessage {
     JoinFailed(String),
     JoinSuccess {
         room_name: String,
-        host: Uuid,
         grid_info: GridInfo,
         players: Vec<Player>,
     },
     NewPlayer(Player),
-    PlayerDisconnected(Uuid),
+    PlayerDisconnected(Uuid, Uuid),
     GameState(Vec<(Uuid, Direction)>),
 }

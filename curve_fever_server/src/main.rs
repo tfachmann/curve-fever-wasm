@@ -18,7 +18,7 @@ use std::{
 };
 use uuid::Uuid;
 
-use curve_fever_common::{ClientMessage, Direction, Game, Player, GridInfo, ServerMessage};
+use curve_fever_common::{ClientMessage, Direction, Game, GridInfo, Player, ServerMessage};
 
 type RoomList = Arc<Mutex<HashMap<String, RoomHandle>>>;
 
@@ -40,7 +40,6 @@ impl RoomHandle {
 
 struct Room {
     name: String,
-    host: Uuid,
     connections: HashMap<SocketAddr, Uuid>,
     players: HashMap<Uuid, PlayerServer>,
     game: Game,
@@ -49,7 +48,6 @@ struct Room {
 impl Room {
     fn new(name: String, width: u32, height: u32, line_width: u32, rotation_delta: f64) -> Self {
         Self {
-            host: Uuid::default(),
             name,
             connections: HashMap::new(),
             players: HashMap::new(),
@@ -85,7 +83,7 @@ impl Room {
 
         // insert player to connection map, first player is the host
         if self.connections.is_empty() {
-            self.host = id;
+            player.lock().unwrap().host = true;
         }
         self.connections.insert(addr, id);
 
@@ -98,7 +96,6 @@ impl Room {
         );
         ws_tx.unbounded_send(ServerMessage::JoinSuccess {
             room_name: self.name.clone(),
-            host: self.host,
             grid_info: GridInfo {
                 width: self.game.width,
                 height: self.game.height,
@@ -111,9 +108,7 @@ impl Room {
                     .map(|v| *v.lock().unwrap())
                     .collect::<Vec<Player>>()
             },
-        }
-        )?;
-
+        })?;
 
         // create player for server
         self.players.insert(
@@ -159,14 +154,29 @@ impl Room {
     fn on_client_disconnected(&mut self, addr: SocketAddr) {
         if let Some(id) = self.connections.remove(&addr) {
             let player = self.players.get(&id).unwrap();
+            let host = { player.player.lock().unwrap().host };
             info!(
                 "[{}] Removed disconnected player `{}`",
                 self.name,
                 player.name.clone()
             );
-
             self.players.remove(&id).unwrap();
-            self.broadcast(ServerMessage::PlayerDisconnected(id))
+
+            let id_host = if host {
+                info!("[{}] Assinging a new host...", self.name);
+                // we need a new host
+                match self.players.iter_mut().next() {
+                    Some((id, player)) => {
+                        player.player.lock().unwrap().host = true;
+                        *id
+                    }
+                    None => id.clone(),
+                }
+            } else {
+                id.clone()
+            };
+
+            self.broadcast(ServerMessage::PlayerDisconnected(id, id_host))
         }
     }
 
@@ -184,7 +194,8 @@ impl Room {
                 if let Some(id) = self.connections.get(&addr) {
                     let player = &self.players.get(id).unwrap();
                     self.game
-                        .on_move(&player.player.lock().unwrap().uuid, direction).unwrap();
+                        .on_move(&player.player.lock().unwrap().uuid, direction)
+                        .unwrap();
                 }
             }
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {

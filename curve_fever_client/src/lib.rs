@@ -1,5 +1,5 @@
 use lazy_static;
-use std::{ops::Deref, ops::DerefMut, rc::Rc, sync::Mutex};
+use std::{collections::HashMap, ops::Deref, ops::DerefMut, rc::Rc, sync::Mutex};
 use wasm_bindgen::convert::FromWasmAbi;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
@@ -95,6 +95,7 @@ impl Canvas {
     }
 }
 
+#[derive(Copy, Clone)]
 struct MyPlayer {
     player: Player,
     x_prev: f64,
@@ -170,12 +171,19 @@ impl PlayerDraw for MyPlayer {
 struct Game {
     base: Rc<Base>,
     canvas: Canvas,
-    players: Vec<MyPlayer>,
+    players: HashMap<Uuid, MyPlayer>,
 }
 
 impl Game {
     fn new(base: Rc<Base>, x_max: u32, y_max: u32, players: Vec<MyPlayer>) -> JsResult<Game> {
         let canvas = Canvas::new(base.clone(), x_max, y_max)?;
+        let players = {
+            let mut map = HashMap::new();
+            players.iter().for_each(|player| {
+                map.insert(player.uuid, *player);
+            });
+            map
+        };
         canvas.clear();
 
         Ok(Game {
@@ -208,19 +216,25 @@ impl Game {
     }
 
     fn add_player(&mut self, player: MyPlayer) -> JsError {
-        self.players.push(player);
+        self.players.insert(player.uuid, player);
+        Ok(())
+    }
+
+    fn remove_player(&mut self, uuid: Uuid, uuid_host: Uuid) -> JsError {
+        (*self.players.get_mut(&uuid_host).ok_or_else(|| format!("Player with uuid `{}` not found", uuid_host.to_string()))?).host = true;
+        self.players.remove(&uuid).ok_or_else(|| format!("Player with uuid `{}` not found", uuid.to_string()))?;
         Ok(())
     }
 
     fn game_tick(&mut self) -> JsError {
-        self.players.iter_mut().for_each(|player| player.tick());
+        self.players.iter_mut().for_each(|(_id, player)| player.tick());
         self.draw()
     }
 
     fn draw(&mut self) -> JsError {
         self.players
             .iter()
-            .for_each(|player| player.draw(&self.canvas));
+            .for_each(|(_id, player)| player.draw(&self.canvas));
         Ok(())
     }
 }
@@ -258,7 +272,7 @@ struct Playing {
 }
 
 impl Playing {
-    fn new(base: Rc<Base>, window: Rc<Window>, game: Game, room_name: String, host: Uuid) -> JsResult<Playing> {
+    fn new(base: Rc<Base>, window: Rc<Window>, game: Game, room_name: String) -> JsResult<Playing> {
         // show game
         base.get_element_by_id("game")?
             .set_attribute("class", "visible")?;
@@ -282,7 +296,7 @@ impl Playing {
 
         let handle_id = window.set_interval_with_callback_and_timeout_and_arguments_0(
             cb.as_ref().unchecked_ref(),
-            20,
+            15,
         )?;
         cb.forget();
 
@@ -310,12 +324,24 @@ impl Playing {
         Ok(())
     }
 
+    fn remove_player(&mut self, uuid: Uuid, uuid_host: Uuid) -> JsError {
+        self.game.remove_player(uuid, uuid_host)?;
+        self.draw_player()?;
+        Ok(())
+    }
+
     fn draw_player(&self) -> JsError {
         self.players_div.set_inner_html("");
-        for player in &self.game.players {
+        for (_id, player) in &self.game.players {
             let p = self.base.doc.create_element("p")?;
             p.set_class_name("player_entry");
             p.set_text_content(Some(player.name.as_str()));
+            if player.host {
+                let host = self.base.doc.create_element("span")?;
+                host.set_class_name("host");
+                host.set_text_content(Some("*"));
+                p.append_child(&host)?;
+            }
             self.players_div.append_child(&p)?;
         }
         Ok(())
@@ -450,7 +476,7 @@ impl Join {
     }
 
     fn input_name_changed(&mut self) -> JsError {
-        self.input_room.set_value(&self.input_room.value());
+        self.input_name.set_value(&self.input_name.value());
         Ok(())
     }
 
@@ -468,16 +494,6 @@ impl Join {
 
     fn join_failed(&self, err: &str) -> JsError {
         self.err_div.set_inner_html(err);
-        Ok(())
-    }
-
-    fn join_success(
-        &mut self,
-        room_name: String,
-        host: Uuid,
-        grid_info: GridInfo,
-        players: Vec<Player>,
-    ) -> JsError {
         Ok(())
     }
 }
@@ -534,7 +550,6 @@ impl State {
     fn on_join_success(
         &mut self,
         room_name: String,
-        host: Uuid,
         grid_info: GridInfo,
         players: Vec<Player>,
     ) -> JsError {
@@ -554,7 +569,7 @@ impl State {
                 match s {
                     State::Join(s) => {
                         *self =
-                            State::Playing(Playing::new(s.base.clone(), s.window.clone(), game, room_name, host)?)
+                            State::Playing(Playing::new(s.base.clone(), s.window.clone(), game, room_name)?)
                     }
                     _ => panic!("Invalid state"),
                 }
@@ -567,6 +582,16 @@ impl State {
         Ok(match self {
             State::Playing(s) => {
                 s.add_player(player);
+            }
+            _ => (),
+        })
+
+    }
+
+    fn on_player_disconnected(&mut self, uuid: Uuid, uuid_host: Uuid) -> JsError {
+        Ok(match self {
+            State::Playing(s) => {
+                s.remove_player(uuid, uuid_host);
             }
             _ => (),
         })
@@ -650,12 +675,11 @@ fn on_message(msg: ServerMessage) -> JsError {
         ServerMessage::JoinFailed(err_text) => state.on_join_failed(&err_text)?,
         ServerMessage::JoinSuccess {
             room_name,
-            host,
             grid_info,
             players,
-        } => state.on_join_success(room_name, host, grid_info, players)?,
+        } => state.on_join_success(room_name, grid_info, players)?,
         ServerMessage::NewPlayer(player) => state.on_new_player(player)?,
-        ServerMessage::PlayerDisconnected(_) => {}
+        ServerMessage::PlayerDisconnected(uuid, uuid_host) => state.on_player_disconnected(uuid, uuid_host)?,
     };
     Ok(())
 }
