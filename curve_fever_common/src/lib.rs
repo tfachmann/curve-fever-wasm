@@ -1,11 +1,7 @@
 use arrayvec::ArrayString;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap,
-    convert::TryInto,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, convert::TryInto, fmt, ops::{Deref, DerefMut}, sync::{Arc, Mutex}};
 use uuid::Uuid;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -20,7 +16,6 @@ pub struct Player {
     pub uuid: Uuid,
     pub host: bool,
     pub name: ArrayString<20>,
-    //pub color: [char; 7],
     pub color: ArrayString<7>,
 
     pub x: f64,
@@ -32,6 +27,9 @@ pub struct Player {
     pub x_max: u32,
     pub y_max: u32,
     pub line_width: u32,
+
+    x_prev_range: (usize, usize),
+    y_prev_range: (usize, usize),
 }
 
 impl Player {
@@ -56,6 +54,8 @@ impl Player {
             x_max,
             y_max,
             line_width,
+            x_prev_range: (0, 0),
+            y_prev_range: (0, 0),
         }
     }
 
@@ -69,7 +69,10 @@ impl Player {
     }
 
     pub fn tick(&mut self) {
-        println!("{}: ({} - {}), {}", self.name, self.x, self.y, self.rotation);
+        println!(
+            "{}: ({} - {}), {}",
+            self.name, self.x, self.y, self.rotation
+        );
         // change rotation
         match self.direction {
             Direction::Left => self.rotation += self.rotation_delta,
@@ -104,23 +107,66 @@ impl Player {
 }
 
 #[derive(Clone, Debug)]
+pub struct Grid {
+    data: Vec<Vec<Uuid>>
+}
+
+impl Grid {
+    fn new(width: usize, height: usize) -> Self {
+        Self {
+            data: vec![vec![Uuid::default();  width]; height],
+        }
+    }
+}
+
+impl Deref for Grid {
+    type Target = Vec<Vec<Uuid>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.data
+    }
+}
+
+impl DerefMut for Grid {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.data
+    }
+}
+
+impl fmt::Display for Grid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for row in self.iter() {
+            for el in row.iter() {
+                if *el == Uuid::default() {
+                    write!(f, " ")?;
+                } else {
+                    write!(f, "x")?;
+                }
+            }
+            write!(f, "\n")?;
+        }
+        write!(f, "\n")
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct Game {
-    pub width: u32,  // pixel width
-    pub height: u32, // pixel height
+    pub width: usize,  // pixel width
+    pub height: usize, // pixel height
     pub line_width: u32,
     pub rotation_delta: f64,
 
-    grid: Arc<Mutex<Vec<Vec<Uuid>>>>, // grid with x and y pixels mapping to uuid of player
+    grid: Arc<Mutex<Grid>>, // grid with x and y pixels mapping to uuid of player
 
     pub players: HashMap<Uuid, Arc<Mutex<Player>>>,
     active_players: HashMap<Uuid, Arc<Mutex<Player>>>,
 }
 
 impl Game {
-    pub fn new(width: u32, height: u32, line_width: u32, rotation_delta: f64) -> Self {
+    pub fn new(width: usize, height: usize, line_width: u32, rotation_delta: f64) -> Self {
         let players = HashMap::new();
         let active_players = HashMap::new();
-        let grid = Arc::new(Mutex::new(vec![vec![Uuid::default(); height.try_into().unwrap()]; width.try_into().unwrap()]));
+        let grid = Arc::new(Mutex::new(Grid::new(width, height)));
 
         Self {
             width,
@@ -156,6 +202,7 @@ impl Game {
         let mut remove = vec![];
         let width = self.width;
         let height = self.height;
+        //let cpy = self.clone();
         {
             let mut grid = self.grid.lock().unwrap();
             self.active_players.iter_mut().for_each(|(uuid, player)| {
@@ -164,38 +211,63 @@ impl Game {
                 let linewidth_half = player.lock().unwrap().line_width as f64 / 2.0;
 
                 // update the grid
-                let pixel_range = |value: f64, max_value: u32| {
-                    let lower = value - linewidth_half - 1.0;
+                let pixel_range = |value: f64, max_value: usize| {
+                    let lower = value - linewidth_half;
                     let lower: usize = match lower.is_sign_negative() {
                         true => return None, // hit a wall
                         false => lower as usize,
                     };
-                    let upper = (value + linewidth_half - 1.0) as usize;
+                    let upper = (value + linewidth_half) as usize;
                     let upper = match upper > (max_value - 1).try_into().unwrap() {
                         true => return None, // hit a wall
                         false => upper as usize,
                     };
-                    Some(lower..upper)
+                    Some((lower, upper))
                 };
 
                 let check_pixels = &mut || -> Option<()> {
-                    let player = player.lock().unwrap();
-                    for x in pixel_range(player.x, width)? {
-                        for y in pixel_range(player.y, height)? {
-                            // player is colliding with another player
-                            if grid[x][y] != Uuid::default() && grid[x][y] != player.uuid {
-                            //if grid[x][y] != Uuid::default() {
-                                println!("COLLISION WITH ANOTHER PLAYER: ({}-{})", x, y);
-                                return None;
+                    let (x_prev_range, y_prev_range) = {
+                        let player = player.lock().unwrap();
+                        let (x_start, x_end) = pixel_range(player.x, width)?;
+                        let (y_start, y_end) = pixel_range(player.y, height)?;
+                        let (x_prev_start, x_prev_end) = player.x_prev_range;
+                        let (y_prev_start, y_prev_end) = player.y_prev_range;
+                        println!(
+                            "x: ({}..{}) => ({}..{})",
+                            x_prev_start, x_prev_end, x_start, x_end
+                        );
+                        println!(
+                            "y: ({}..{}) => ({}..{})",
+                            y_prev_start, y_prev_end, y_start, y_end
+                        );
+                        for x in x_start..x_end {
+                            for y in y_start..y_end {
+                                if (x < x_prev_start || x > x_prev_end)
+                                    || (y < y_prev_start || y > y_prev_end)
+                                {
+                                    // player is colliding with another player
+                                    if grid[y][x] != Uuid::default() {
+                                        println!("COLLISION WITH ANOTHER PLAYER: ({}-{})", x, y);
+                                        return None;
+                                    }
+                                }
+                                // don't check with your last move
+                                grid[y][x] = *uuid;
+                                println!("writing: ({}/{})", x, y);
                             }
-                            grid[x][y] = *uuid;
                         }
-                    }
+                        ((x_start, x_end), ((y_start, y_end)))
+                    };
+                    let mut player = player.lock().unwrap();
+                    player.x_prev_range = x_prev_range;
+                    player.y_prev_range = y_prev_range;
                     Some(())
                 };
 
                 if let None = check_pixels() {
                     // either inside a wall, or colliding with another player
+                    println!("Got collision...");
+                    println!("{}", grid);
                     remove.push(uuid.clone());
                 }
             });
@@ -254,6 +326,5 @@ pub enum ServerMessage {
     NewPlayer(Player),
     PlayerDisconnected(Uuid, Uuid),
     RoundStarted,
-    //GameState(Vec<(Uuid, Direction)>),
     GameState(Vec<(Uuid, (f64, f64))>),
 }

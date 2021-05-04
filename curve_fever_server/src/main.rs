@@ -10,12 +10,7 @@ use futures::{
 use log::{debug, error, info, warn};
 use rand::{distributions::Alphanumeric, Rng};
 use smol::{Async, Task, Timer};
-use std::{
-    collections::HashMap,
-    net::{SocketAddr, TcpListener, TcpStream},
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{collections::HashMap, convert::TryInto, net::{SocketAddr, TcpListener, TcpStream}, sync::{Arc, Mutex}, time::Duration};
 use uuid::Uuid;
 
 use curve_fever_common::{ClientMessage, Game, GridInfo, Player, ServerMessage};
@@ -40,7 +35,7 @@ impl RoomHandle {
 
     async fn tick(&mut self) {
         loop {
-            Timer::after(Duration::from_millis(40)).await;
+            Timer::after(Duration::from_millis(10)).await;
             if !self.room.lock().unwrap().tick_once() {
                 break;
             }
@@ -56,12 +51,12 @@ struct Room {
 }
 
 impl Room {
-    fn new(name: String, width: u32, height: u32, line_width: u32, rotation_delta: f64) -> Self {
+    fn new(name: String, width: usize, height: usize, line_width: u32, rotation_delta: f64) -> Self {
         Self {
             name,
             connections: HashMap::new(),
             players: HashMap::new(),
-            game: Game::new(width * 2, height * 2, line_width, rotation_delta),
+            game: Game::new(width, height, line_width, rotation_delta),
         }
     }
 
@@ -82,8 +77,8 @@ impl Room {
         let player = Arc::new(Mutex::new(Player::new(
             id,
             &player_name,
-            self.game.width,
-            self.game.height,
+            self.game.width.try_into().unwrap(),
+            self.game.height.try_into().unwrap(),
             self.game.line_width,
             self.game.rotation_delta,
         )));
@@ -107,8 +102,8 @@ impl Room {
         ws_tx.unbounded_send(ServerMessage::JoinSuccess {
             room_name: self.name.clone(),
             grid_info: GridInfo {
-                width: self.game.width,
-                height: self.game.height,
+                width: self.game.width.try_into().unwrap(),
+                height: self.game.height.try_into().unwrap(),
                 line_width: self.game.line_width,
             },
             players: {
@@ -347,10 +342,10 @@ async fn read_stream(
                 let (write, read) = unbounded();
                 let room = Arc::new(Mutex::new(Room::new(
                     "Testing Room".into(),
-                    500, // width
+                    800, // width
                     400, // height
-                    2,   // line width in px
-                    2.,  // rotation delta in deg
+                    4,   // line width in px
+                    4.,  // rotation delta in deg
                 )));
                 let handle = RoomHandle {
                     play: false,
