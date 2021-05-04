@@ -1,4 +1,5 @@
 use arrayvec::ArrayString;
+use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -58,7 +59,17 @@ impl Player {
         }
     }
 
+    fn initialize(&mut self) {
+        let mut rng = thread_rng();
+        self.x = rng.gen_range(0..self.x_max).into();
+        self.y = rng.gen_range(0..self.y_max).into();
+        self.rotation = rng
+            .gen_range(0..(360 as f64 / self.rotation_delta as f64) as u32)
+            .into();
+    }
+
     pub fn tick(&mut self) {
+        println!("{}: ({} - {}), {}", self.name, self.x, self.y, self.rotation);
         // change rotation
         match self.direction {
             Direction::Left => self.rotation += self.rotation_delta,
@@ -92,6 +103,7 @@ impl Player {
     }
 }
 
+#[derive(Clone, Debug)]
 pub struct Game {
     pub width: u32,  // pixel width
     pub height: u32, // pixel height
@@ -108,7 +120,7 @@ impl Game {
     pub fn new(width: u32, height: u32, line_width: u32, rotation_delta: f64) -> Self {
         let players = HashMap::new();
         let active_players = HashMap::new();
-        let grid = Arc::new(Mutex::new(Vec::new()));
+        let grid = Arc::new(Mutex::new(vec![vec![Uuid::default(); height.try_into().unwrap()]; width.try_into().unwrap()]));
 
         Self {
             width,
@@ -121,6 +133,24 @@ impl Game {
         }
     }
 
+    pub fn initialize(&mut self) {
+        self.active_players = self.players.clone();
+        self.active_players
+            .iter_mut()
+            .map(|(_id, player)| player.lock().unwrap())
+            .for_each(|mut player| {
+                player.initialize();
+            });
+    }
+
+    pub fn state(&self) -> Vec<(Uuid, (f64, f64))> {
+        self.active_players
+            .iter()
+            .map(|(id, player)| (id, player.lock().unwrap()))
+            .map(|(id, player)| (*id, (player.x, player.y)))
+            .collect()
+    }
+
     pub fn tick(&mut self) {
         // do a move for each player
         let mut remove = vec![];
@@ -131,7 +161,7 @@ impl Game {
             self.active_players.iter_mut().for_each(|(uuid, player)| {
                 // move
                 player.lock().unwrap().tick();
-                let linewidth_half = player.lock().unwrap().line_width as f64 / 0.5;
+                let linewidth_half = player.lock().unwrap().line_width as f64 / 2.0;
 
                 // update the grid
                 let pixel_range = |value: f64, max_value: u32| {
@@ -153,7 +183,9 @@ impl Game {
                     for x in pixel_range(player.x, width)? {
                         for y in pixel_range(player.y, height)? {
                             // player is colliding with another player
-                            if grid[x][y] != Uuid::default() {
+                            if grid[x][y] != Uuid::default() && grid[x][y] != player.uuid {
+                            //if grid[x][y] != Uuid::default() {
+                                println!("COLLISION WITH ANOTHER PLAYER: ({}-{})", x, y);
                                 return None;
                             }
                             grid[x][y] = *uuid;
@@ -177,6 +209,10 @@ impl Game {
         });
 
         // TODO: send back to client?
+    }
+
+    pub fn running(&self) -> bool {
+        !self.active_players.is_empty()
     }
 
     pub fn on_move(&mut self, id: &Uuid, direction: Direction) -> Result<(), String> {
@@ -218,5 +254,6 @@ pub enum ServerMessage {
     NewPlayer(Player),
     PlayerDisconnected(Uuid, Uuid),
     RoundStarted,
-    GameState(Vec<(Uuid, Direction)>),
+    //GameState(Vec<(Uuid, Direction)>),
+    GameState(Vec<(Uuid, (f64, f64))>),
 }

@@ -34,8 +34,6 @@ struct Canvas {
     context: CanvasRenderingContext2d,
     width: u32,
     height: u32,
-    width_scaled: u32,
-    height_scaled: u32,
 }
 
 impl Canvas {
@@ -43,18 +41,14 @@ impl Canvas {
         let canvas: HtmlCanvasElement = base
             .get_element_by_id("main_canvas")?
             .dyn_into::<HtmlCanvasElement>()?;
-        canvas.set_width(width * 2);
-        canvas.set_height(height * 2);
+        canvas.set_width(width);
+        canvas.set_height(height);
 
         let context = canvas
             .get_context("2d")?
             .unwrap()
             .dyn_into::<CanvasRenderingContext2d>()?;
 
-        let width_scaled = canvas.width() / width;
-        let height_scaled = canvas.height() / height;
-
-        context.set_line_width(width_scaled as f64);
         context.set_line_cap("round");
 
         Ok(Canvas {
@@ -62,36 +56,31 @@ impl Canvas {
             context,
             width,
             height,
-            width_scaled,
-            height_scaled,
         })
     }
 
-    fn draw(&self, from: (f64, f64), to: (f64, f64), color: &str) {
-        //console_log!("Drawing Canvas... {}: {} {}", color, x, y);
+    fn draw(&self, from: (f64, f64), to: (f64, f64), color: &str, linewidth: f64) {
+        //console_log!("Drawing Canvas... (): from ({}-{}) to ({}-{})", color, from.0, from.1, to.0, to.1);
+        self.context.set_line_width(linewidth);
         self.context.set_stroke_style(&color.into());
         self.context.set_fill_style(&color.into());
 
         self.context.begin_path();
-        let from_x = from.0 * self.width_scaled as f64;
-        let from_y = from.1 * self.height_scaled as f64;
+        let from_x = from.0;
+        let from_y = from.1;
         self.context.move_to(from_x, from_y);
         //self.context.stroke();
 
-        let to_x = to.0 * self.width_scaled as f64;
-        let to_y = to.1 * self.height_scaled as f64;
+        let to_x = to.0;
+        let to_y = to.1;
         self.context.line_to(to_x, to_y);
         self.context.stroke();
     }
 
     fn clear(&self) {
         self.context.set_fill_style(&"#263238".into());
-        self.context.fill_rect(
-            0.,
-            0.,
-            (self.width * self.width_scaled).into(),
-            (self.height * self.height_scaled).into(),
-        );
+        self.context
+            .fill_rect(0., 0., self.width.into(), self.height.into());
     }
 }
 
@@ -100,6 +89,21 @@ struct MyPlayer {
     player: Player,
     x_prev: f64,
     y_prev: f64,
+}
+
+impl MyPlayer {
+    fn update_pos(&mut self, x: f64, y: f64) {
+        self.x_prev = self.x;
+        self.y_prev = self.y;
+        self.x = x;
+        self.y = y;
+    }
+    fn init_pos(&mut self, x: f64, y: f64) {
+        self.x_prev = x;
+        self.x = x;
+        self.y_prev = y;
+        self.y = y;
+    }
 }
 
 impl Deref for MyPlayer {
@@ -127,44 +131,17 @@ impl From<Player> for MyPlayer {
 }
 
 trait PlayerDraw {
-    fn tick(&mut self);
     fn draw(&self, canvas: &Canvas);
 }
 
 impl PlayerDraw for MyPlayer {
-    fn tick(&mut self) {
-        //console_log!("{} - {}", self.x, self.y);
-        let x_change = self.rotation.to_radians().cos();
-        let y_change = self.rotation.to_radians().sin();
-
-        self.x_prev = self.x;
-        self.y_prev = self.y;
-
-        self.x += x_change;
-        if self.x < 0. {
-            self.x = 0.;
-            return;
-        }
-        if self.x > self.x_max as f64 {
-            self.x = self.x_max as f64;
-            return;
-        }
-
-        self.y += y_change;
-        if self.y < 0. {
-            self.y = 0.;
-            self.x = self.x_prev;
-            return;
-        }
-        if self.y > self.y_max as f64 {
-            self.y = self.y_max as f64;
-            self.x = self.x_prev;
-            return;
-        }
-    }
-
     fn draw(&self, canvas: &Canvas) {
-        canvas.draw((self.x_prev, self.y_prev), (self.x, self.y), &self.color);
+        canvas.draw(
+            (self.x_prev, self.y_prev),
+            (self.x, self.y),
+            &self.color,
+            self.line_width as f64,
+        );
     }
 }
 
@@ -196,12 +173,18 @@ impl Game {
     }
 
     fn on_keydown(&mut self, event: KeyboardEvent) -> JsError {
+        console_log!("Key pressed - {}", event.key().as_str());
         if self.running {
             match event.key().as_str() {
                 "ArrowLeft" | "h" | "a" => self.base.send(ClientMessage::Move(Direction::Left))?,
                 "ArrowRight" | "l" | "d" => {
                     self.base.send(ClientMessage::Move(Direction::Right))?
                 }
+                _ => (),
+            }
+        } else {
+            match event.key().as_str() {
+                " " => self.base.send(ClientMessage::StartGame)?,
                 _ => (),
             }
         }
@@ -240,10 +223,25 @@ impl Game {
         Ok(())
     }
 
+    fn game_update(&mut self, game_state: Vec<(Uuid, (f64, f64))>) -> JsError {
+        if self.running {
+            game_state.iter().for_each(|(id, (x, y))| {
+                self.players.get_mut(id).unwrap().update_pos(*x, *y);
+            });
+        } else {
+            // initializing
+            game_state.iter().for_each(|(id, (x, y))| {
+                self.players.get_mut(id).unwrap().init_pos(*x, *y);
+            });
+        };
+        self.draw()?;
+        Ok(())
+    }
+
     fn game_tick(&mut self) -> JsError {
-        self.players
-            .iter_mut()
-            .for_each(|(_id, player)| player.tick());
+        //self.players
+        //.iter_mut()
+        //.for_each(|(_id, player)| player.tick());
         self.draw()
     }
 
@@ -339,24 +337,29 @@ impl Playing {
         Ok(())
     }
 
-    fn round_started(&mut self) -> JsError {
-        // TODO: start tick
-        // game ticks
-        let cb = Closure::wrap(Box::new(move || {
-            HANDLE
-                .lock()
-                .unwrap()
-                .game_tick()
-                .expect("Could not update game");
-        }) as Box<dyn Fn()>);
+    fn game_update(&mut self, game_state: Vec<(Uuid, (f64, f64))>) -> JsError {
+        self.game.game_update(game_state)?;
+        Ok(())
+    }
 
-        self.handle_id = self
-            .window
-            .set_interval_with_callback_and_timeout_and_arguments_0(
-                cb.as_ref().unchecked_ref(),
-                15,
-            )?;
-        cb.forget();
+    fn round_started(&mut self) -> JsError {
+        // TODO: start tick?
+        // game ticks
+        //let cb = Closure::wrap(Box::new(move || {
+        //HANDLE
+        //.lock()
+        //.unwrap()
+        //.game_tick()
+        //.expect("Could not update game");
+        //}) as Box<dyn Fn()>);
+
+        //self.handle_id = self
+        //.window
+        //.set_interval_with_callback_and_timeout_and_arguments_0(
+        //cb.as_ref().unchecked_ref(),
+        //15,
+        //)?;
+        //cb.forget();
 
         self.game.running = true;
         Ok(())
@@ -602,8 +605,8 @@ impl State {
                 // switch state to `Playing`
                 let game = Game::new(
                     s.base.clone(),
-                    (grid_info.width as f64 / 2.0) as u32,
-                    (grid_info.height as f64 / 2.0) as u32,
+                    grid_info.width,
+                    grid_info.height,
                     players
                         .iter()
                         .map(|v| (*v).into())
@@ -654,10 +657,10 @@ impl State {
         })
     }
 
-    fn game_update(&mut self, game_state: Vec<(Uuid, Direction)>) -> JsError {
+    fn game_update(&mut self, game_state: Vec<(Uuid, (f64, f64))>) -> JsError {
         Ok(match self {
             State::Playing(s) => {
-                console_log!("game_update()");
+                s.game_update(game_state)?;
             }
             _ => (),
         })
@@ -711,7 +714,7 @@ where
 
 /// Handle received message from Server
 fn on_message(msg: ServerMessage) -> JsError {
-    console_log!("Received Message");
+    //console_log!("Received Message");
     let mut state = HANDLE.lock().unwrap();
     match msg {
         ServerMessage::GameState(game_state) => state.game_update(game_state)?,

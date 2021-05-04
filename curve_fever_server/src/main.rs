@@ -18,12 +18,13 @@ use std::{
 };
 use uuid::Uuid;
 
-use curve_fever_common::{ClientMessage, Direction, Game, GridInfo, Player, ServerMessage};
+use curve_fever_common::{ClientMessage, Game, GridInfo, Player, ServerMessage};
 
 type RoomList = Arc<Mutex<HashMap<String, RoomHandle>>>;
 
 #[derive(Clone)]
 struct RoomHandle {
+    play: bool,
     write: UnboundedSender<(SocketAddr, ClientMessage)>,
     room: Arc<Mutex<Room>>,
 }
@@ -32,6 +33,15 @@ impl RoomHandle {
     async fn run_room(&mut self, mut read: UnboundedReceiver<(SocketAddr, ClientMessage)>) {
         while let Some((addr, msg)) = read.next().await {
             if !self.room.lock().unwrap().on_message(addr, msg) {
+                break;
+            }
+        }
+    }
+
+    async fn tick(&mut self) {
+        loop {
+            Timer::after(Duration::from_millis(40)).await;
+            if !self.room.lock().unwrap().tick_once() {
                 break;
             }
         }
@@ -126,6 +136,18 @@ impl Room {
         Ok(())
     }
 
+    fn tick_once(&mut self) -> bool {
+        if self.running() {
+            if self.game.running() {
+                self.game.tick();
+                self.broadcast(ServerMessage::GameState(self.game.state()));
+            }
+            true
+        } else {
+            false
+        }
+    }
+
     fn broadcast(&self, msg: ServerMessage) {
         self.connections.values().for_each(|id| {
             if let Some(ws) = &self.players.get(id).unwrap().ws {
@@ -137,11 +159,11 @@ impl Room {
                         e
                     );
                 } else {
-                    info!(
-                        "[{}] Sent broadcast to {}",
-                        self.name,
-                        self.players.get(id).unwrap().name
-                    );
+                    //info!(
+                    //"[{}] Sent broadcast to {}",
+                    //self.name,
+                    //self.players.get(id).unwrap().name
+                    //);
                 }
             } else {
                 error!(
@@ -181,29 +203,54 @@ impl Room {
         }
     }
 
+    fn on_start_game(&mut self) {
+        // initialize game
+        self.game.initialize();
+
+        self.broadcast(ServerMessage::GameState(self.game.state()));
+        self.broadcast(ServerMessage::RoundStarted);
+
+        //for _ in 0..100 {
+        //self.game.tick();
+        //self.broadcast(ServerMessage::GameState(self.game.state()));
+        //}
+    }
+
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) -> bool {
         info!(
-            "[{}]: Got message from {}",
+            "[{}] Got message from `{}`: {:?}",
             self.name,
             self.connections
                 .get(&addr)
                 .map(|id| self.players.get(id).unwrap().name.clone())
-                .unwrap_or_else(|| format!("unknown player at {}", addr))
+                .unwrap_or_else(|| format!("unknown player at {}", addr)),
+            msg
         );
         match msg {
             ClientMessage::Move(direction) => {
                 if let Some(id) = self.connections.get(&addr) {
                     let player = &self.players.get(id).unwrap();
-                    self.game
-                        .on_move(&player.player.lock().unwrap().uuid, direction)
-                        .unwrap();
+                    let uuid = { player.player.lock().unwrap().uuid };
+                    if let Err(e) = self.game.on_move(&uuid, direction) {
+                        error!("[{}] Error occurd during move: {}", self.name, e);
+                    }
                 }
             }
             ClientMessage::CreateRoom(_) | ClientMessage::JoinRoom(_, _) => {
                 warn!("[{}] Invalid message", self.name);
             }
             ClientMessage::Disconnected => self.on_client_disconnected(addr),
-            ClientMessage::StartGame => {}
+            ClientMessage::StartGame => {
+                if let Some(id) = self.connections.get(&addr) {
+                    let player = &self.players.get(id).unwrap();
+                    if player.player.lock().unwrap().host {
+                        // valid
+                        self.on_start_game();
+                    } else {
+                        warn!("[{}] Only the host can start a game", self.name);
+                    }
+                }
+            }
         };
         self.running()
     }
@@ -300,12 +347,16 @@ async fn read_stream(
                 let (write, read) = unbounded();
                 let room = Arc::new(Mutex::new(Room::new(
                     "Testing Room".into(),
-                    500,
-                    400,
-                    15,
-                    2.,
+                    500, // width
+                    400, // height
+                    2,   // line width in px
+                    2.,  // rotation delta in deg
                 )));
-                let handle = RoomHandle { write, room };
+                let handle = RoomHandle {
+                    play: false,
+                    write,
+                    room,
+                };
 
                 let room_name = next_room_name(&mut rooms.lock().unwrap(), handle.clone());
                 info!(
@@ -314,10 +365,14 @@ async fn read_stream(
                 );
                 handle.room.lock().unwrap().name = room_name.clone();
 
-                let mut h = handle.clone();
+                //let mut h = handle.clone();
+
                 join(
-                    h.run_room(read),
-                    run_player(player_name, addr, handle, stream),
+                    handle.clone().tick(),
+                    join(
+                        handle.clone().run_room(read),
+                        run_player(player_name, addr, handle, stream),
+                    ),
                 )
                 .await;
 
@@ -383,21 +438,6 @@ pub fn main() {
         .detach();
         tx
     };
-
-    {
-        let rooms = rooms.clone();
-        Task::spawn(async move {
-            loop {
-                Timer::after(Duration::from_millis(50)).await;
-                rooms.lock().unwrap().iter_mut().for_each(|room| {
-                    //tick
-
-                    //broadcast
-                });
-            }
-        })
-        .detach();
-    }
 
     smol::block_on(async {
         info!("Listening on: {}", addr);
