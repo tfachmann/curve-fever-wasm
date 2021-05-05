@@ -9,10 +9,15 @@ use futures::{
     stream::StreamExt,
 };
 use log::{debug, error, info, warn};
-use rand::{distributions::Alphanumeric, Rng, seq::SliceRandom};
+use rand::{distributions::Alphanumeric, seq::SliceRandom, Rng};
 use smol::{Async, Task, Timer};
-use core::time;
-use std::{collections::HashMap, convert::TryInto, net::{SocketAddr, TcpListener, TcpStream}, sync::{Arc, Mutex}, thread, time::Duration};
+use std::{
+    collections::HashMap,
+    convert::TryInto,
+    net::{SocketAddr, TcpListener, TcpStream},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use uuid::Uuid;
 
 use curve_fever_common::{ClientMessage, Game, GridInfo, Player, ServerMessage};
@@ -42,7 +47,7 @@ impl RoomHandle {
                 break;
             }
             if self.room.lock().unwrap().initialized {
-                Timer::after(Duration::from_secs(2)).await;  // room cannot be mutably blocked at this state
+                Timer::after(Duration::from_secs(2)).await; // room cannot be mutably blocked at this state
                 self.room.lock().unwrap().initialized = false;
             }
         }
@@ -59,10 +64,18 @@ struct Room {
 }
 
 impl Room {
-    fn new(name: String, width: usize, height: usize, line_width: u32, rotation_delta: f64) -> Self {
+    fn new(
+        name: String,
+        width: usize,
+        height: usize,
+        line_width: u32,
+        rotation_delta: f64,
+    ) -> Self {
         let colors = {
             let mut vec = vec![];
-            for color in &["#E65100", "#388E3C", "#0277BD", "#D32F2F", "#9C27B0", "#FFC107", "#9E9E9E"] {
+            for color in &[
+                "#E65100", "#388E3C", "#0277BD", "#D32F2F", "#9C27B0", "#FFC107", "#9E9E9E",
+            ] {
                 vec.push(ArrayString::<7>::from(color).unwrap());
             }
             vec.shuffle(&mut rand::thread_rng());
@@ -154,14 +167,19 @@ impl Room {
         Ok(())
     }
 
+    fn do_tick(&mut self) {
+        self.game.tick();
+        self.broadcast(ServerMessage::GameState(self.game.state()));
+        if let Some(winner) = self.game.get_winner() {
+            info!("[{}] Round has finished", self.name);
+            self.broadcast(ServerMessage::RoundEnded((winner, self.game.state_ended())));
+        }
+    }
+
     fn tick_once(&mut self) -> bool {
         if self.running() {
             if self.game.running() {
-                self.game.tick();
-                self.broadcast(ServerMessage::GameState(self.game.state()));
-                if let Some(winner) = self.game.get_winner() {
-                    self.broadcast(ServerMessage::RoundEnded(winner));
-                }
+                self.do_tick();
             }
             true
         } else {
@@ -204,7 +222,9 @@ impl Room {
                 self.name,
                 player.name.clone()
             );
+            self.game.remove_player(&id);
             self.players.remove(&id).unwrap();
+            self.do_tick();
 
             let id_host = if host {
                 info!("[{}] Assinging a new host...", self.name);
@@ -365,9 +385,9 @@ async fn read_stream(
                 let room = Arc::new(Mutex::new(Room::new(
                     "Testing Room".into(),
                     1000, // width
-                    800, // height
-                    6,   // line width in px
-                    8.,  // rotation delta in deg
+                    800,  // height
+                    6,    // line width in px
+                    8.,   // rotation delta in deg
                 )));
                 let handle = RoomHandle {
                     play: false,

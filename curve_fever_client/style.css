@@ -105,13 +105,21 @@ div#players {
     flex: 1;
 }
 
-p.player_entry {
+.player_entry_wrapper {
     margin: auto;
     padding-left: 8px;
     padding-right: 8px;
     padding-top: 2px;
     padding-bottom: 4px;
     border-bottom: solid 2px #37474F;
+    display: flex;
+    justify-content: space-between;
+}
+
+.player_entry {
+}
+
+.player_score {
 }
 
 div#chat {

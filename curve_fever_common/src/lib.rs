@@ -49,6 +49,8 @@ pub struct Player {
     invisible_count: usize,
     invisible_length: usize,
 
+    pub points: usize,
+
     x_prev_range: (usize, usize),
     y_prev_range: (usize, usize),
 }
@@ -82,6 +84,7 @@ impl Player {
             invisible_max: 100,
             invisible_count: 0,
             invisible_length: 3,
+            points: 0,
             x_prev_range: (0, 0),
             y_prev_range: (0, 0),
         }
@@ -95,7 +98,8 @@ impl Player {
         let y_limits = (self.y_max as f64 * 0.15) as u32;
         self.x = rng.gen_range(0 + x_limits..self.x_max - x_limits).into();
         self.y = rng.gen_range(0 + y_limits..self.y_max - y_limits).into();
-        self.rotation = self.rotation_delta * rng.gen_range(0..(360 as f64 / self.rotation_delta as f64) as u32) as f64;
+        self.rotation = self.rotation_delta
+            * rng.gen_range(0..(360 as f64 / self.rotation_delta as f64) as u32) as f64;
     }
 
     pub fn tick(&mut self) {
@@ -205,6 +209,7 @@ pub struct Game {
     pub height: usize, // pixel height
     pub line_width: u32,
     pub rotation_delta: f64,
+    single_player: bool,
 
     grid: Arc<Mutex<Grid>>, // grid with x and y pixels mapping to uuid of player
 
@@ -226,10 +231,16 @@ impl Game {
             grid,
             players,
             active_players,
+            single_player: false,
         }
     }
 
     pub fn initialize(&mut self) {
+        if self.players.len() == 1 {
+            self.single_player = true;
+        } else {
+            self.single_player = false;
+        }
         self.grid.lock().unwrap().clear();
         self.active_players = self.players.clone();
         self.active_players
@@ -250,6 +261,14 @@ impl Game {
                 y: player.y,
                 invisible: player.invisible,
             })
+            .collect()
+    }
+
+    pub fn state_ended(&self) -> Vec<(Uuid, usize)> {
+        self.players
+            .iter()
+            .map(|(id, player)| (id, player.lock().unwrap()))
+            .map(|(id, player)| (*id, player.points))
             .collect()
     }
 
@@ -325,16 +344,38 @@ impl Game {
 
         // remove player from game
         remove.iter().for_each(|uuid_remove| {
+            if !self.single_player {
+                // calculate points if not in single player
+                self.calculate_points(uuid_remove);
+            }
             self.active_players
                 .remove(uuid_remove)
                 .expect("Player to be removed was not found");
         });
 
-        // TODO: send back to client?
+        if !self.single_player {
+            if self.active_players.len() == 1 {
+                // we have a winner
+                println!("Calculate points of winner");
+                let uuid = *self.active_players.keys().next().unwrap();
+                self.calculate_points(&uuid);
+            }
+        }
+    }
+
+    pub fn remove_player(&mut self, uuid: &Uuid) {
+        self.active_players.remove(uuid);
+        self.players.remove(uuid);
+    }
+
+    fn calculate_points(&mut self, uuid: &Uuid) {
+        let len_total = self.players.len();
+        let mut player = self.players.get_mut(uuid).unwrap().lock().unwrap();
+        player.points += 2_usize.pow((len_total - self.active_players.len()).try_into().unwrap());
     }
 
     pub fn running(&self) -> bool {
-        if self.players.len() == 1 {
+        if self.single_player {
             !self.active_players.is_empty()
         } else {
             self.active_players.len() > 1
@@ -342,9 +383,8 @@ impl Game {
     }
 
     pub fn get_winner(&self) -> Option<Uuid> {
-        // TODO: what if someone joins and the single player round is still running?
         if !self.running() {
-            if self.players.len() == 1 {
+            if self.single_player {
                 Some(*self.players.iter().next().unwrap().0)
             } else {
                 Some(*self.active_players.iter().next().unwrap().0)
@@ -393,6 +433,6 @@ pub enum ServerMessage {
     NewPlayer(Player),
     PlayerDisconnected(Uuid, Uuid),
     RoundStarted,
-    RoundEnded(Uuid),
+    RoundEnded((Uuid, Vec<(Uuid, usize)>)),
     GameState(Vec<PlayerState>),
 }

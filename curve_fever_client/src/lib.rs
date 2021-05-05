@@ -375,9 +375,15 @@ impl Playing {
         Ok(())
     }
 
-    fn round_ended(&mut self, winner: Uuid) -> JsError {
+    fn round_ended(&mut self, winner: Uuid, points: Vec<(Uuid, usize)>) -> JsError {
         self.game.running = false;
         // TODO: show that someone has won
+        // update points
+        points.iter().for_each(|(id, points)| {
+            let player = self.game.players.get_mut(id).unwrap();
+            player.points = *points;
+        });
+        self.draw_player()?;
         Ok(())
     }
 
@@ -385,21 +391,30 @@ impl Playing {
         self.players_div.set_inner_html("");
         for (id, player) in &self.game.players {
             let p = self.base.doc.create_element("p")?;
-            p.set_class_name("player_entry");
-            p.set_attribute("style", &format!("color: {}", player.color.as_str()))?;
-            p.set_text_content(Some(player.name.as_str()));
+            p.set_class_name("player_entry_wrapper");
+            let span = self.base.doc.create_element("span")?;
+            span.set_class_name("player_entry");
+            span.set_attribute("style", &format!("color: {}", player.color.as_str()))?;
+            span.set_text_content(Some(player.name.as_str()));
             if player.host {
                 let host = self.base.doc.create_element("span")?;
                 host.set_class_name("host");
                 host.set_text_content(Some("*"));
-                p.append_child(&host)?;
+                span.append_child(&host)?;
             }
             if *id == self.uuid {
                 let you = self.base.doc.create_element("span")?;
                 you.set_class_name("you");
                 you.set_text_content(Some(" (You)"));
-                p.append_child(&you)?;
+                span.append_child(&you)?;
             }
+            p.append_child(&span)?;
+
+            let score = self.base.doc.create_element("span")?;
+            score.set_class_name("player_score");
+            score.set_text_content(Some(&player.points.to_string()));
+            p.append_child(&score)?;
+
             self.players_div.append_child(&p)?;
         }
         Ok(())
@@ -674,10 +689,10 @@ impl State {
         })
     }
 
-    fn on_round_ended(&mut self, winner: Uuid) -> JsError {
+    fn on_round_ended(&mut self, winner: Uuid, points: Vec<(Uuid, usize)>) -> JsError {
         Ok(match self {
             State::Playing(s) => {
-                s.round_ended(winner)?;
+                s.round_ended(winner, points)?;
             }
             _ => (),
         })
@@ -756,7 +771,7 @@ fn on_message(msg: ServerMessage) -> JsError {
             state.on_player_disconnected(uuid, uuid_host)?
         }
         ServerMessage::RoundStarted => state.on_round_started()?,
-        ServerMessage::RoundEnded(winner) => state.on_round_ended(winner)?,
+        ServerMessage::RoundEnded((winner, points)) => state.on_round_ended(winner, points)?,
     };
     Ok(())
 }
