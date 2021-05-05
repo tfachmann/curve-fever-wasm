@@ -17,6 +17,14 @@ pub enum Direction {
     Unchanged,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PlayerState {
+    pub id: Uuid,
+    pub x: f64,
+    pub y: f64,
+    pub invisible: bool,
+}
+
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
 pub struct Player {
     pub uuid: Uuid,
@@ -35,6 +43,11 @@ pub struct Player {
     pub line_width: u32,
     speed: f64,
     stop_count: f64,
+
+    pub invisible: bool,
+    invisible_max: usize,
+    invisible_count: usize,
+    invisible_length: usize,
 
     x_prev_range: (usize, usize),
     y_prev_range: (usize, usize),
@@ -65,6 +78,10 @@ impl Player {
             line_width,
             speed: 0.8,
             stop_count: 0.,
+            invisible: false,
+            invisible_max: 100,
+            invisible_count: 0,
+            invisible_length: 3,
             x_prev_range: (0, 0),
             y_prev_range: (0, 0),
         }
@@ -72,23 +89,34 @@ impl Player {
 
     fn initialize(&mut self) {
         let mut rng = thread_rng();
-        self.x = rng.gen_range(0..self.x_max).into();
-        self.y = rng.gen_range(0..self.y_max).into();
-        self.rotation = rng
-            .gen_range(0..(360 as f64 / self.rotation_delta as f64) as u32)
-            .into();
+        self.direction = Direction::Unchanged;
+        self.invisible_count = self.invisible_max;
+        let x_limits = (self.x_max as f64 * 0.15) as u32;
+        let y_limits = (self.y_max as f64 * 0.15) as u32;
+        self.x = rng.gen_range(0 + x_limits..self.x_max - x_limits).into();
+        self.y = rng.gen_range(0 + y_limits..self.y_max - y_limits).into();
+        self.rotation = self.rotation_delta * rng.gen_range(0..(360 as f64 / self.rotation_delta as f64) as u32) as f64;
     }
 
     pub fn tick(&mut self) {
+        // don't move if in stop_count (handles speed by not updating)
         self.stop_count -= 1.;
         if self.stop_count > 0. {
             return;
         }
         self.stop_count = self.line_width as f64 - (self.line_width as f64 * self.speed);
-        //println!(
-        //"{}: ({} - {}), {}",
-        //self.name, self.x, self.y, self.rotation
-        //);
+
+        // handle invisibility
+        self.invisible_count -= 1;
+        if self.invisible_count == 0 {
+            self.invisible = true;
+            self.invisible_count = self.invisible_max;
+        }
+
+        if self.invisible && self.invisible_count < self.invisible_max - self.invisible_length {
+            self.invisible = false;
+        }
+
         // change rotation
         match self.direction {
             Direction::Left => self.rotation += self.rotation_delta,
@@ -212,11 +240,16 @@ impl Game {
             });
     }
 
-    pub fn state(&self) -> Vec<(Uuid, (f64, f64))> {
+    pub fn state(&self) -> Vec<PlayerState> {
         self.active_players
             .iter()
             .map(|(id, player)| (id, player.lock().unwrap()))
-            .map(|(id, player)| (*id, (player.x, player.y)))
+            .map(|(id, player)| PlayerState {
+                id: *id,
+                x: player.x,
+                y: player.y,
+                invisible: player.invisible,
+            })
             .collect()
     }
 
@@ -280,10 +313,12 @@ impl Game {
                     Some(())
                 };
 
-                if let None = check_pixels() {
-                    // either inside a wall, or colliding with another player
-                    //println!("{}", grid);
-                    remove.push(uuid.clone());
+                if !player.lock().unwrap().invisible {
+                    if let None = check_pixels() {
+                        // either inside a wall, or colliding with another player
+                        //println!("{}", grid);
+                        remove.push(uuid.clone());
+                    }
                 }
             });
         }
@@ -359,5 +394,5 @@ pub enum ServerMessage {
     PlayerDisconnected(Uuid, Uuid),
     RoundStarted,
     RoundEnded(Uuid),
-    GameState(Vec<(Uuid, (f64, f64))>),
+    GameState(Vec<PlayerState>),
 }

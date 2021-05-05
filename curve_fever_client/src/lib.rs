@@ -9,7 +9,7 @@ use web_sys::{
     MessageEvent, ProgressEvent, Text, TouchEvent, WebSocket, Window,
 };
 
-use curve_fever_common::{ClientMessage, Direction, GridInfo, Player, ServerMessage};
+use curve_fever_common::{ClientMessage, Direction, GridInfo, Player, PlayerState, ServerMessage};
 use uuid::Uuid;
 
 type JsResult<T> = Result<T, JsValue>;
@@ -59,22 +59,26 @@ impl Canvas {
         })
     }
 
-    fn draw(&self, from: (f64, f64), to: (f64, f64), color: &str, linewidth: f64) {
-        //console_log!("Drawing Canvas... (): from ({}-{}) to ({}-{})", color, from.0, from.1, to.0, to.1);
-        self.context.set_line_width(linewidth);
-        self.context.set_stroke_style(&color.into());
-        self.context.set_fill_style(&color.into());
+    fn draw(&self, from: (f64, f64), to: (f64, f64), color: &str, linewidth: f64, invisible: bool) {
+        //console_log!("Drawing Canvas... {}: from ({}-{}) to ({}-{})", color, from.0, from.1, to.0, to.1);
+        if invisible {
+            self.context.move_to(to.0, to.1)
+        } else {
+            self.context.set_line_width(linewidth);
+            self.context.set_stroke_style(&color.into());
+            self.context.set_fill_style(&color.into());
 
-        self.context.begin_path();
-        let from_x = from.0;
-        let from_y = from.1;
-        self.context.move_to(from_x, from_y);
-        //self.context.stroke();
+            self.context.begin_path();
+            let from_x = from.0;
+            let from_y = from.1;
+            self.context.move_to(from_x, from_y);
+            //self.context.stroke();
 
-        let to_x = to.0;
-        let to_y = to.1;
-        self.context.line_to(to_x, to_y);
-        self.context.stroke();
+            let to_x = to.0;
+            let to_y = to.1;
+            self.context.line_to(to_x, to_y);
+            self.context.stroke();
+        }
     }
 
     fn clear(&self) {
@@ -92,11 +96,12 @@ struct MyPlayer {
 }
 
 impl MyPlayer {
-    fn update_pos(&mut self, x: f64, y: f64) {
+    fn update_pos(&mut self, x: f64, y: f64, invisible: bool) {
         self.x_prev = self.x;
         self.y_prev = self.y;
         self.x = x;
         self.y = y;
+        self.invisible = invisible;
     }
     fn init_pos(&mut self, x: f64, y: f64) {
         self.x_prev = x;
@@ -141,6 +146,7 @@ impl PlayerDraw for MyPlayer {
             (self.x, self.y),
             &self.color,
             self.line_width as f64,
+            self.invisible,
         );
     }
 }
@@ -173,7 +179,7 @@ impl Game {
     }
 
     fn on_keydown(&mut self, event: KeyboardEvent) -> JsError {
-        console_log!("Key pressed - {}", event.key().as_str());
+        //console_log!("Key pressed - {}", event.key().as_str());
         if self.running {
             match event.key().as_str() {
                 "ArrowLeft" | "h" | "a" => self.base.send(ClientMessage::Move(Direction::Left))?,
@@ -223,16 +229,19 @@ impl Game {
         Ok(())
     }
 
-    fn game_update(&mut self, game_state: Vec<(Uuid, (f64, f64))>) -> JsError {
+    fn game_update(&mut self, game_state: Vec<PlayerState>) -> JsError {
         if self.running {
-            game_state.iter().for_each(|(id, (x, y))| {
-                self.players.get_mut(id).unwrap().update_pos(*x, *y);
+            game_state.iter().for_each(|s| {
+                self.players
+                    .get_mut(&s.id)
+                    .unwrap()
+                    .update_pos(s.x, s.y, s.invisible);
             });
         } else {
             // initializing
             self.canvas.clear();
-            game_state.iter().for_each(|(id, (x, y))| {
-                self.players.get_mut(id).unwrap().init_pos(*x, *y);
+            game_state.iter().for_each(|s| {
+                self.players.get_mut(&s.id).unwrap().init_pos(s.x, s.y);
             });
         };
         self.draw()?;
@@ -338,11 +347,10 @@ impl Playing {
         Ok(())
     }
 
-    fn game_update(&mut self, game_state: Vec<(Uuid, (f64, f64))>) -> JsError {
+    fn game_update(&mut self, game_state: Vec<PlayerState>) -> JsError {
         self.game.game_update(game_state)?;
         Ok(())
     }
-
 
     fn round_started(&mut self) -> JsError {
         // TODO: start tick?
@@ -675,7 +683,7 @@ impl State {
         })
     }
 
-    fn game_update(&mut self, game_state: Vec<(Uuid, (f64, f64))>) -> JsError {
+    fn game_update(&mut self, game_state: Vec<PlayerState>) -> JsError {
         Ok(match self {
             State::Playing(s) => {
                 s.game_update(game_state)?;
@@ -732,7 +740,7 @@ where
 
 /// Handle received message from Server
 fn on_message(msg: ServerMessage) -> JsError {
-    //console_log!("Received Message");
+    //console_log!("Received Message: {:?}", msg);
     let mut state = HANDLE.lock().unwrap();
     match msg {
         ServerMessage::GameState(game_state) => state.game_update(game_state)?,
@@ -764,9 +772,9 @@ pub fn main() -> JsError {
     let location = doc.location().to_js_err("Could not get doc location")?;
     let hostname = location.hostname()?;
     let (ws_protocol, ws_port) = if location.protocol()? == "https:" {
-        ("wss", 8091)
+        ("wss", 8096)
     } else {
-        ("ws", 8090)
+        ("ws", 8095)
     };
     let hostname = format!("{}://{}:{}", ws_protocol, hostname, ws_port);
 

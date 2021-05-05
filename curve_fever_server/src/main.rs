@@ -11,7 +11,8 @@ use futures::{
 use log::{debug, error, info, warn};
 use rand::{distributions::Alphanumeric, Rng, seq::SliceRandom};
 use smol::{Async, Task, Timer};
-use std::{collections::HashMap, convert::TryInto, net::{SocketAddr, TcpListener, TcpStream}, sync::{Arc, Mutex}, time::Duration};
+use core::time;
+use std::{collections::HashMap, convert::TryInto, net::{SocketAddr, TcpListener, TcpStream}, sync::{Arc, Mutex}, thread, time::Duration};
 use uuid::Uuid;
 
 use curve_fever_common::{ClientMessage, Game, GridInfo, Player, ServerMessage};
@@ -40,6 +41,10 @@ impl RoomHandle {
             if !self.room.lock().unwrap().tick_once() {
                 break;
             }
+            if self.room.lock().unwrap().initialized {
+                Timer::after(Duration::from_secs(2)).await;  // room cannot be mutably blocked at this state
+                self.room.lock().unwrap().initialized = false;
+            }
         }
     }
 }
@@ -50,6 +55,7 @@ struct Room {
     players: HashMap<Uuid, PlayerServer>,
     colors: Vec<ArrayString<7>>,
     game: Game,
+    initialized: bool,
 }
 
 impl Room {
@@ -69,6 +75,7 @@ impl Room {
             players: HashMap::new(),
             colors,
             game: Game::new(width, height, line_width, rotation_delta),
+            initialized: false,
         }
     }
 
@@ -223,11 +230,7 @@ impl Room {
 
         self.broadcast(ServerMessage::GameState(self.game.state()));
         self.broadcast(ServerMessage::RoundStarted);
-
-        //for _ in 0..100 {
-        //self.game.tick();
-        //self.broadcast(ServerMessage::GameState(self.game.state()));
-        //}
+        self.initialized = true;
     }
 
     fn on_message(&mut self, addr: SocketAddr, msg: ClientMessage) -> bool {
@@ -364,7 +367,7 @@ async fn read_stream(
                     1000, // width
                     800, // height
                     6,   // line width in px
-                    6.,  // rotation delta in deg
+                    8.,  // rotation delta in deg
                 )));
                 let handle = RoomHandle {
                     play: false,
@@ -432,7 +435,7 @@ async fn read_stream(
 
 pub fn main() {
     env_logger::from_env(Env::default().default_filter_or("curve_fever_server=INFO")).init();
-    let addr = "0.0.0.0:8090";
+    let addr = "0.0.0.0:8095";
 
     let rooms = Arc::new(Mutex::new(HashMap::new()));
 
