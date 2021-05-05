@@ -243,16 +243,9 @@ impl Game {
                         let (y_start, y_end) = pixel_range(player.y, height)?;
                         let (x_prev_start, x_prev_end) = player.x_prev_range;
                         let (y_prev_start, y_prev_end) = player.y_prev_range;
-                        println!(
-                            "x: ({}..{}) => ({}..{})",
-                            x_prev_start, x_prev_end, x_start, x_end
-                        );
-                        println!(
-                            "y: ({}..{}) => ({}..{})",
-                            y_prev_start, y_prev_end, y_start, y_end
-                        );
                         for x in x_start..x_end {
                             for y in y_start..y_end {
+                                // don't check with your last move
                                 if (x < x_prev_start || x > x_prev_end)
                                     || (y < y_prev_start || y > y_prev_end)
                                 {
@@ -262,9 +255,8 @@ impl Game {
                                         return None;
                                     }
                                 }
-                                // don't check with your last move
+                                // mark each cell with your player id
                                 grid[y][x] = *uuid;
-                                println!("writing: ({}/{})", x, y);
                             }
                         }
                         ((x_start, x_end), ((y_start, y_end)))
@@ -277,8 +269,7 @@ impl Game {
 
                 if let None = check_pixels() {
                     // either inside a wall, or colliding with another player
-                    println!("Got collision...");
-                    println!("{}", grid);
+                    //println!("{}", grid);
                     remove.push(uuid.clone());
                 }
             });

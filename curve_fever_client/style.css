@@ -149,6 +149,11 @@ div#join_error {
     margin-top: 5px;
 }
 
+span.host {
+    color: #BDBDBD;
+    font-weight: 700;
+}
+
 p.small_margin {
     margin-bottom: 5px;
 }

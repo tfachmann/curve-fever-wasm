@@ -370,6 +370,7 @@ impl Playing {
         for (id, player) in &self.game.players {
             let p = self.base.doc.create_element("p")?;
             p.set_class_name("player_entry");
+            p.set_attribute("style", &format!("color: {}", player.color.as_str()))?;
             p.set_text_content(Some(player.name.as_str()));
             if player.host {
                 let host = self.base.doc.create_element("span")?;

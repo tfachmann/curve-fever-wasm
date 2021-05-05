@@ -1,4 +1,5 @@
 use anyhow::Result;
+use arrayvec::ArrayString;
 use async_tungstenite::{tungstenite::Message, WebSocketStream};
 use env_logger::Env;
 use futures::{
@@ -8,7 +9,7 @@ use futures::{
     stream::StreamExt,
 };
 use log::{debug, error, info, warn};
-use rand::{distributions::Alphanumeric, Rng};
+use rand::{distributions::Alphanumeric, Rng, seq::SliceRandom};
 use smol::{Async, Task, Timer};
 use std::{collections::HashMap, convert::TryInto, net::{SocketAddr, TcpListener, TcpStream}, sync::{Arc, Mutex}, time::Duration};
 use uuid::Uuid;
@@ -35,7 +36,7 @@ impl RoomHandle {
 
     async fn tick(&mut self) {
         loop {
-            Timer::after(Duration::from_millis(10)).await;
+            Timer::after(Duration::from_millis(30)).await;
             if !self.room.lock().unwrap().tick_once() {
                 break;
             }
@@ -47,15 +48,26 @@ struct Room {
     name: String,
     connections: HashMap<SocketAddr, Uuid>,
     players: HashMap<Uuid, PlayerServer>,
+    colors: Vec<ArrayString<7>>,
     game: Game,
 }
 
 impl Room {
     fn new(name: String, width: usize, height: usize, line_width: u32, rotation_delta: f64) -> Self {
+        let colors = {
+            let mut vec = vec![];
+            for color in &["#E65100", "#388E3C", "#0277BD", "#D32F2F", "#9C27B0", "#FFC107", "#9E9E9E"] {
+                vec.push(ArrayString::<7>::from(color).unwrap());
+            }
+            vec.shuffle(&mut rand::thread_rng());
+            vec
+        };
+
         Self {
             name,
             connections: HashMap::new(),
             players: HashMap::new(),
+            colors,
             game: Game::new(width, height, line_width, rotation_delta),
         }
     }
@@ -73,10 +85,14 @@ impl Room {
         // generate UUID
         let id = Uuid::new_v4();
 
+        // get color
+        let color = self.colors.pop().expect("no more colors left");
+
         // create player for game
         let player = Arc::new(Mutex::new(Player::new(
             id,
             &player_name,
+            color,
             self.game.width.try_into().unwrap(),
             self.game.height.try_into().unwrap(),
             self.game.line_width,
@@ -342,10 +358,10 @@ async fn read_stream(
                 let (write, read) = unbounded();
                 let room = Arc::new(Mutex::new(Room::new(
                     "Testing Room".into(),
-                    800, // width
-                    400, // height
-                    4,   // line width in px
-                    4.,  // rotation delta in deg
+                    1000, // width
+                    800, // height
+                    6,   // line width in px
+                    6.,  // rotation delta in deg
                 )));
                 let handle = RoomHandle {
                     play: false,
