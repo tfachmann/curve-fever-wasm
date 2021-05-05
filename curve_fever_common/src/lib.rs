@@ -27,6 +27,8 @@ pub struct Player {
     pub x_max: u32,
     pub y_max: u32,
     pub line_width: u32,
+    speed: f64,
+    stop_count: f64,
 
     x_prev_range: (usize, usize),
     y_prev_range: (usize, usize),
@@ -36,6 +38,7 @@ impl Player {
     pub fn new(
         uuid: Uuid,
         name: &str,
+        color: ArrayString<7>,
         x_max: u32,
         y_max: u32,
         line_width: u32,
@@ -45,7 +48,7 @@ impl Player {
             uuid,
             host: false,
             name: ArrayString::<20>::from(name).unwrap(),
-            color: ArrayString::<7>::from("#E65100").unwrap(),
+            color,
             x: 0.,
             y: 0.,
             rotation: 0.,
@@ -54,6 +57,8 @@ impl Player {
             x_max,
             y_max,
             line_width,
+            speed: 0.8,
+            stop_count: 0.,
             x_prev_range: (0, 0),
             y_prev_range: (0, 0),
         }
@@ -69,6 +74,11 @@ impl Player {
     }
 
     pub fn tick(&mut self) {
+        self.stop_count -= 1.;
+        if self.stop_count > 0. {
+            return;
+        }
+        self.stop_count = self.line_width as f64 - (self.line_width as f64 * self.speed);
         println!(
             "{}: ({} - {}), {}",
             self.name, self.x, self.y, self.rotation
@@ -80,9 +90,9 @@ impl Player {
             Direction::Unchanged => (),
         }
 
-        // change position
-        let x_change = self.rotation.to_radians().cos();
-        let y_change = self.rotation.to_radians().sin();
+        // change position is relative to linewidth
+        let x_change = self.rotation.to_radians().cos() * (self.line_width as f64);
+        let y_change = self.rotation.to_radians().sin() * (self.line_width as f64);
 
         self.x += x_change;
         if self.x < 0. {
@@ -211,13 +221,14 @@ impl Game {
                 let linewidth_half = player.lock().unwrap().line_width as f64 / 2.0;
 
                 // update the grid
+                // TODO: be better here. More discrete, no use of floats, ...
                 let pixel_range = |value: f64, max_value: usize| {
-                    let lower = value - linewidth_half;
+                    let lower = value - linewidth_half + 1.0;
                     let lower: usize = match lower.is_sign_negative() {
                         true => return None, // hit a wall
                         false => lower as usize,
                     };
-                    let upper = (value + linewidth_half) as usize;
+                    let upper = (value + linewidth_half - 1.0) as usize;
                     let upper = match upper > (max_value - 1).try_into().unwrap() {
                         true => return None, // hit a wall
                         false => upper as usize,
