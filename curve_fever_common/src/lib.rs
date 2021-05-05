@@ -1,7 +1,13 @@
 use arrayvec::ArrayString;
 use rand::{thread_rng, Rng};
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, convert::TryInto, fmt, ops::{Deref, DerefMut}, sync::{Arc, Mutex}};
+use std::{
+    collections::HashMap,
+    convert::TryInto,
+    fmt,
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex},
+};
 use uuid::Uuid;
 
 #[derive(Copy, Clone, Debug, Deserialize, Serialize)]
@@ -79,10 +85,10 @@ impl Player {
             return;
         }
         self.stop_count = self.line_width as f64 - (self.line_width as f64 * self.speed);
-        println!(
-            "{}: ({} - {}), {}",
-            self.name, self.x, self.y, self.rotation
-        );
+        //println!(
+        //"{}: ({} - {}), {}",
+        //self.name, self.x, self.y, self.rotation
+        //);
         // change rotation
         match self.direction {
             Direction::Left => self.rotation += self.rotation_delta,
@@ -118,14 +124,20 @@ impl Player {
 
 #[derive(Clone, Debug)]
 pub struct Grid {
-    data: Vec<Vec<Uuid>>
+    data: Vec<Vec<Uuid>>,
 }
 
 impl Grid {
     fn new(width: usize, height: usize) -> Self {
         Self {
-            data: vec![vec![Uuid::default();  width]; height],
+            data: vec![vec![Uuid::default(); width]; height],
         }
+    }
+
+    fn clear(&mut self) {
+        self.data
+            .iter_mut()
+            .for_each(|row| row.iter_mut().for_each(|el| *el = Uuid::default()));
     }
 }
 
@@ -190,6 +202,7 @@ impl Game {
     }
 
     pub fn initialize(&mut self) {
+        self.grid.lock().unwrap().clear();
         self.active_players = self.players.clone();
         self.active_players
             .iter_mut()
@@ -286,7 +299,24 @@ impl Game {
     }
 
     pub fn running(&self) -> bool {
-        !self.active_players.is_empty()
+        if self.players.len() == 1 {
+            !self.active_players.is_empty()
+        } else {
+            self.active_players.len() > 1
+        }
+    }
+
+    pub fn get_winner(&self) -> Option<Uuid> {
+        // TODO: what if someone joins and the single player round is still running?
+        if !self.running() {
+            if self.players.len() == 1 {
+                Some(*self.players.iter().next().unwrap().0)
+            } else {
+                Some(*self.active_players.iter().next().unwrap().0)
+            }
+        } else {
+            None
+        }
     }
 
     pub fn on_move(&mut self, id: &Uuid, direction: Direction) -> Result<(), String> {
@@ -328,5 +358,6 @@ pub enum ServerMessage {
     NewPlayer(Player),
     PlayerDisconnected(Uuid, Uuid),
     RoundStarted,
+    RoundEnded(Uuid),
     GameState(Vec<(Uuid, (f64, f64))>),
 }

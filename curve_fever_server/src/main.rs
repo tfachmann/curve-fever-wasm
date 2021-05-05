@@ -152,6 +152,9 @@ impl Room {
             if self.game.running() {
                 self.game.tick();
                 self.broadcast(ServerMessage::GameState(self.game.state()));
+                if let Some(winner) = self.game.get_winner() {
+                    self.broadcast(ServerMessage::RoundEnded(winner));
+                }
             }
             true
         } else {

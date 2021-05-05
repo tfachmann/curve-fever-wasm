@@ -230,6 +230,7 @@ impl Game {
             });
         } else {
             // initializing
+            self.canvas.clear();
             game_state.iter().for_each(|(id, (x, y))| {
                 self.players.get_mut(id).unwrap().init_pos(*x, *y);
             });
@@ -342,6 +343,7 @@ impl Playing {
         Ok(())
     }
 
+
     fn round_started(&mut self) -> JsError {
         // TODO: start tick?
         // game ticks
@@ -362,6 +364,12 @@ impl Playing {
         //cb.forget();
 
         self.game.running = true;
+        Ok(())
+    }
+
+    fn round_ended(&mut self, winner: Uuid) -> JsError {
+        self.game.running = false;
+        // TODO: show that someone has won
         Ok(())
     }
 
@@ -658,6 +666,15 @@ impl State {
         })
     }
 
+    fn on_round_ended(&mut self, winner: Uuid) -> JsError {
+        Ok(match self {
+            State::Playing(s) => {
+                s.round_ended(winner)?;
+            }
+            _ => (),
+        })
+    }
+
     fn game_update(&mut self, game_state: Vec<(Uuid, (f64, f64))>) -> JsError {
         Ok(match self {
             State::Playing(s) => {
@@ -731,6 +748,7 @@ fn on_message(msg: ServerMessage) -> JsError {
             state.on_player_disconnected(uuid, uuid_host)?
         }
         ServerMessage::RoundStarted => state.on_round_started()?,
+        ServerMessage::RoundEnded(winner) => state.on_round_ended(winner)?,
     };
     Ok(())
 }
