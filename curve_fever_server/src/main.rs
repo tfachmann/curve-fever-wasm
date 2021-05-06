@@ -42,7 +42,7 @@ impl RoomHandle {
 
     async fn tick(&mut self) {
         loop {
-            Timer::after(Duration::from_millis(30)).await;
+            Timer::after(Duration::from_millis(25)).await;
             if !self.room.lock().unwrap().tick_once() {
                 break;
             }
@@ -197,12 +197,6 @@ impl Room {
                         self.players.get(id).unwrap().name,
                         e
                     );
-                } else {
-                    //info!(
-                    //"[{}] Sent broadcast to {}",
-                    //self.name,
-                    //self.players.get(id).unwrap().name
-                    //);
                 }
             } else {
                 error!(
@@ -224,7 +218,9 @@ impl Room {
             );
             self.game.remove_player(&id);
             self.players.remove(&id).unwrap();
-            self.do_tick();
+            if self.game.running() {
+                self.do_tick();
+            }
 
             let id_host = if host {
                 info!("[{}] Assinging a new host...", self.name);
