@@ -129,8 +129,8 @@ impl Player {
         }
 
         // change position is relative to linewidth
-        let x_change = self.rotation.to_radians().cos() * (self.line_width as f64);
-        let y_change = self.rotation.to_radians().sin() * (self.line_width as f64);
+        let x_change = self.rotation.to_radians().sin() * (self.line_width as f64);
+        let y_change = self.rotation.to_radians().cos() * (self.line_width as f64);
 
         self.x += x_change;
         if self.x < 0. {
