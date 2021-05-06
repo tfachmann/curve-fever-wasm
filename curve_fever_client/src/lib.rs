@@ -1,3 +1,4 @@
+use arrayvec::ArrayString;
 use lazy_static;
 use std::{collections::HashMap, ops::Deref, ops::DerefMut, rc::Rc, sync::Mutex};
 use wasm_bindgen::convert::FromWasmAbi;
@@ -29,11 +30,20 @@ impl<T> OptionJsValue<T> for Option<T> {
     }
 }
 
+#[derive(Copy, Clone)]
+struct Line {
+    from: (f64, f64),
+    to: (f64, f64),
+    linewidth: f64,
+    color: ArrayString<7>,
+}
+
 struct Canvas {
     canvas: HtmlCanvasElement,
     context: CanvasRenderingContext2d,
     width: u32,
     height: u32,
+    lines: Vec<Line>,
 }
 
 impl Canvas {
@@ -56,29 +66,42 @@ impl Canvas {
             context,
             width,
             height,
+            lines: Vec::new(),
         })
     }
 
-    fn draw(&self, from: (f64, f64), to: (f64, f64), color: &str, linewidth: f64, invisible: bool) {
+    fn draw_line(&self, line: &Line) {
+        self.context.set_line_width(line.linewidth);
+        self.context
+            .set_stroke_style(&line.color.to_string().into());
+        self.context.set_fill_style(&line.color.to_string().into());
+
+        self.context.begin_path();
+        let from_x = line.from.0;
+        let from_y = line.from.1;
+        self.context.move_to(from_x, from_y);
+
+        let to_x = line.to.0;
+        let to_y = line.to.1;
+        self.context.line_to(to_x, to_y);
+        self.context.stroke();
+    }
+
+    fn draw(&mut self, line: Line, invisible: bool) {
         //console_log!("Drawing Canvas... {}: from ({}-{}) to ({}-{})", color, from.0, from.1, to.0, to.1);
+        let mut line = line;
         if invisible {
-            self.context.move_to(to.0, to.1)
+            self.redraw_all();
+            line.from = line.to;
         } else {
-            self.context.set_line_width(linewidth);
-            self.context.set_stroke_style(&color.into());
-            self.context.set_fill_style(&color.into());
-
-            self.context.begin_path();
-            let from_x = from.0;
-            let from_y = from.1;
-            self.context.move_to(from_x, from_y);
-            //self.context.stroke();
-
-            let to_x = to.0;
-            let to_y = to.1;
-            self.context.line_to(to_x, to_y);
-            self.context.stroke();
+            self.lines.push(line);
         }
+        self.draw_line(&line);
+    }
+
+    fn redraw_all(&self) {
+        self.clear();
+        self.lines.iter().for_each(|line| self.draw_line(&line));
     }
 
     fn clear(&self) {
@@ -136,16 +159,18 @@ impl From<Player> for MyPlayer {
 }
 
 trait PlayerDraw {
-    fn draw(&self, canvas: &Canvas);
+    fn draw(&self, canvas: &mut Canvas);
 }
 
 impl PlayerDraw for MyPlayer {
-    fn draw(&self, canvas: &Canvas) {
+    fn draw(&self, canvas: &mut Canvas) {
         canvas.draw(
-            (self.x_prev, self.y_prev),
-            (self.x, self.y),
-            &self.color,
-            self.line_width as f64,
+            Line {
+                from: (self.x_prev, self.y_prev),
+                to: (self.x, self.y),
+                linewidth: self.line_width as f64,
+                color: self.color,
+            },
             self.invisible,
         );
     }
@@ -240,6 +265,7 @@ impl Game {
         } else {
             // initializing
             self.canvas.clear();
+            self.canvas.lines.clear();
             game_state.iter().for_each(|s| {
                 self.players.get_mut(&s.id).unwrap().init_pos(s.x, s.y);
             });
@@ -256,9 +282,9 @@ impl Game {
     }
 
     fn draw(&mut self) -> JsError {
-        self.players
-            .iter()
-            .for_each(|(_id, player)| player.draw(&self.canvas));
+        for (_id, player) in &self.players {
+            player.draw(&mut self.canvas);
+        }
         Ok(())
     }
 }
